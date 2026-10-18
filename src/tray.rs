@@ -8,7 +8,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+use windows::Win32::Foundation::HINSTANCE;
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{CopyIcon, IDI_APPLICATION, LoadIconW};
+use windows::core::PCWSTR;
 
 use crate::hook;
 
@@ -18,7 +21,7 @@ const VALUE_NAME: &str = "plume";
 struct State {
     // doit rester vivante : la destruction de l'icône retire le tray
     _tray: TrayIcon,
-    pause: MenuItem,
+    pause: CheckMenuItem,
     autostart: CheckMenuItem,
 }
 
@@ -27,21 +30,34 @@ thread_local! {
     // qui crée le tray et vide ses événements — pas de static possible
     static STATE: std::cell::RefCell<Option<State>> = const { std::cell::RefCell::new(None) };
 }
-/// dernier état affiché dans le libellé « pause » (synchro hotkey ⇄ menu tray)
+/// dernier état affiché par la coche « Pause » (synchro hotkey ⇄ menu tray)
 static SHOWN_PAUSED: AtomicBool = AtomicBool::new(false);
 
 pub fn init() {
-    let pause = MenuItem::new("Mettre en pause", true, None);
+    let pause = CheckMenuItem::new("Pause", true, hook::is_paused(), None);
     let autostart = CheckMenuItem::new("Démarrage auto", true, autostart_enabled(), None);
     let quit = MenuItem::new("Quitter", true, None);
     let menu = Menu::new();
     let _ = menu.append(&pause);
     let _ = menu.append(&autostart);
     let _ = menu.append(&quit);
-    // icône système par défaut : pas de fichier .ico à embarquer.
-    // CopyIcon car tray-icon détruit le handle au drop et l'icône LoadIconW est partagée.
+    // icône embarquée dans l'exé par build.rs (winresource, ressource ID 1),
+    // repli sur l'icône système si absente. CopyIcon car tray-icon détruit le
+    // handle au drop et LoadIconW renvoie une icône partagée.
     let icon = unsafe {
-        let shared = LoadIconW(None, IDI_APPLICATION).expect("LoadIconW");
+        let own = GetModuleHandleW(None).ok().and_then(|m| {
+            // MAKEINTRESOURCE(1) : ressource ID 1 de l'exé (winresource)
+            let id1 = PCWSTR(std::ptr::without_provenance(1));
+            LoadIconW(Some(HINSTANCE(m.0)), id1).ok()
+        });
+        let shared = own
+            .or_else(|| LoadIconW(None, IDI_APPLICATION).ok())
+            .expect("LoadIconW");
+        crate::dlog::dlog(if own.is_some() {
+            "icône embarquée de l'exé"
+        } else {
+            "icône système (ressource 1 absente)"
+        });
         Icon::from_handle(CopyIcon(shared).expect("CopyIcon").0 as isize)
     };
     let tray = TrayIconBuilder::new()
@@ -68,20 +84,18 @@ pub fn poll() {
         let Some(s) = slot.as_mut() else {
             return;
         };
-        // le libellé suit aussi les bascules faites par la hotkey Ctrl+Alt+P
+        // la coche suit aussi les bascules faites par la hotkey Ctrl+Alt+P
         let paused = hook::is_paused();
         if paused != SHOWN_PAUSED.swap(paused, Ordering::Relaxed) {
-            s.pause.set_text(if paused {
-                "Reprendre"
-            } else {
-                "Mettre en pause"
-            });
+            s.pause.set_checked(paused);
         }
         while let Ok(ev) = MenuEvent::receiver().try_recv() {
             let id: &str = ev.id().as_ref();
             match id {
                 "pause" => {
+                    // muda a déjà basculé la coche avant d'émettre l'événement
                     hook::toggle_paused();
+                    s.pause.set_checked(hook::is_paused());
                 }
                 "autostart" => {
                     // muda a déjà basculé la coche avant d'émettre l'événement

@@ -200,7 +200,7 @@ impl App {
         // ≥ 4 caractères (évite « de », « sur »…) ; ni chiffre, ni apostrophe/tiret :
         // mots.txt ne contient que des mots purs (0 apostrophe) → toute suggestion
         // sur une contraction (« d'une » → « dune ») serait un faux positif
-        if trigger_len < 4 || !mot.chars().all(char::is_alphabetic) {
+        if trigger_len < 4 || !mot.chars().all(char::is_alphabetic) || spell::spam(&mot) {
             return None;
         }
         let lower = mot.to_lowercase();

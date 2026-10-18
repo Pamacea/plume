@@ -4,6 +4,7 @@ mod conj;
 mod dlog;
 mod hook;
 mod punct;
+mod shortcut;
 mod spell;
 mod tray;
 
@@ -29,6 +30,8 @@ fn main() -> eframe::Result {
             .with_inner_size(eframe::egui::vec2(300.0, 150.0)),
         ..Default::default()
     };
+    // raccourcis Démarrer + Bureau (réécrits : suit un déplacement du dossier)
+    shortcut::install();
     // tray à créer sur le thread principal, avant la boucle winit (voir tray.rs)
     tray::init();
     eframe::run_native(

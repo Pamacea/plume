@@ -15,15 +15,18 @@ curseur, dans une bulle élégante :
 | `je la regarde ` | verbes **synonymes conjugués** : « je l'observe… » (1 100 verbes) |
 | `grace ` | suggestions accentuées : « grâce » |
 
-↑↓ pour naviguer, **Entrée** pour insérer, **Échap** pour ignorer.
+↑↓ pour naviguer, **Entrée** pour insérer, **Échap** pour ignorer. Tant que la
+bulle est ouverte, écrire est bloqué : la suggestion tient jusqu'à validation
+ou annulation.
 
 ## Télécharger
 
 Dernière release : [Releases](../../releases) → déziper, lancer `plume.exe`.
 
 Au premier lancement, Plume crée `exclusions.txt` (apps où le clavier doit être
-laissé tranquille) et relit `tics.txt`, `adjectifs.txt`, `verbes.txt` via le
-menu du plateau à chaque chargement — tous sont éditables à la main.
+laissé tranquille) et un raccourci `Plume` (menu Démarrer + Bureau).
+`tics.txt`, `adjectifs.txt`, `verbes.txt` sont lus au démarrage — tous
+éditables à la main (redémarrage pour prendre effet).
 
 ## Raccourcis
 

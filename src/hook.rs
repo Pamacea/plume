@@ -140,10 +140,13 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             return CallNextHookEx(None, code, wparam, lparam);
         }
         let kb = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
-        // 0x10 = LLKHF_INJECTED : nos propres envois SendInput ne doivent pas alimenter le buffer
-        // (sinon accepter « En réalité » re-déclencherait la bulle en boucle)
+        // 0x10 = LLKHF_INJECTED : seules nos propres frappes (backspace/Unicode via
+        // enigo) sont ignorées — sinon accepter « En réalité » re-déclencherait la
+        // bulle. Les injections tierces (macros : Ctrl/Alt/Échap) sont traitées
+        // normalement : sans ça aucun Invalidate → buffer périmé → popup à côté.
         let injected = kb.flags.0 & 0x10 != 0;
-        let ignore = injected && !INJECT_TEST.load(Ordering::Relaxed);
+        let ours = matches!(kb.vkCode, 0x8 | 0xE7);
+        let ignore = injected && ours && !INJECT_TEST.load(Ordering::Relaxed);
         if ignore {
             crate::dlog::dlog(&format!("ignoré injected vk={:#x}", kb.vkCode));
         }
@@ -152,12 +155,9 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             && !is_excluded()
         {
             crate::dlog::dlog(&format!("hook vk={:#x} -> {msg:?}", kb.vkCode));
-            let swallow = POPUP_OPEN.load(Ordering::Relaxed)
-                && matches!(
-                    msg,
-                    KeyMsg::Up | KeyMsg::Down | KeyMsg::Return | KeyMsg::Escape
-                );
-            if let Some(tx) = TX.get()
+            let (transmit, swallow) = flow(msg, POPUP_OPEN.load(Ordering::Relaxed));
+            if transmit
+                && let Some(tx) = TX.get()
                 && tx.send(msg).is_ok()
             {
                 repint();
@@ -169,6 +169,18 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         }
         CallNextHookEx(None, code, wparam, lparam)
     }
+}
+
+/// (transmettre à plume, avaler la frappe) : tant que la bulle est ouverte,
+/// l'écriture est avalée ET non transmise — sinon `on_msg` la traiterait et
+/// refermerait la popup avant Entrée/Échap (« j'écris vite, ça coupe »).
+fn flow(msg: KeyMsg, popup_open: bool) -> (bool, bool) {
+    let write = matches!(msg, KeyMsg::Char(_) | KeyMsg::Backspace);
+    let nav = matches!(
+        msg,
+        KeyMsg::Up | KeyMsg::Down | KeyMsg::Return | KeyMsg::Escape
+    );
+    (!popup_open || !write, popup_open && (write || nav))
 }
 
 fn classify(kb: &KBDLLHOOKSTRUCT, wparam: WPARAM) -> Option<KeyMsg> {
@@ -187,7 +199,11 @@ fn classify(kb: &KBDLLHOOKSTRUCT, wparam: WPARAM) -> Option<KeyMsg> {
         {
             return None;
         }
-        if (down(VK_CONTROL.0 as i32) && !altgr) || down(VK_LWIN.0 as i32) || down(VK_RWIN.0 as i32)
+        // Alt gauche = raccourci (Alt+D, Alt+Espace…) : jamais une frappe, invalide
+        // le buffer ; AltGr (RMenu) reste une frappe normale (é, è…)
+        if ((down(VK_CONTROL.0 as i32) || down(VK_LMENU.0 as i32)) && !altgr)
+            || down(VK_LWIN.0 as i32)
+            || down(VK_RWIN.0 as i32)
         {
             return Some(KeyMsg::Invalidate);
         }
@@ -360,6 +376,23 @@ mod tests {
     fn exclusions_ignore_commentaires_casse_et_espaces() {
         let v = super::parse_exclusions("# Discord.exe\nSteam.EXE\n\n  vscode.exe  \n");
         assert_eq!(v, vec!["steam.exe", "vscode.exe"]);
+    }
+
+    #[test]
+    fn bulle_ouverte_avale_ecriture() {
+        use super::KeyMsg;
+        use super::flow;
+        // écriture pendant la bulle : avalée et non transmise (la frappe
+        // disparaît, la bulle dure jusqu'à Entrée/Échap)
+        assert_eq!(flow(KeyMsg::Char('a'), true), (false, true));
+        assert_eq!(flow(KeyMsg::Backspace, true), (false, true));
+        // navigation : avalée mais transmise — la bulle doit y réagir
+        assert_eq!(flow(KeyMsg::Up, true), (true, true));
+        assert_eq!(flow(KeyMsg::Return, true), (true, true));
+        // bulle fermée : tout transmis, rien avalé
+        assert_eq!(flow(KeyMsg::Char('a'), false), (true, false));
+        // Ctrl+V pendant la bulle : transmis (ferme la bulle), non avalé
+        assert_eq!(flow(KeyMsg::Invalidate, true), (true, false));
     }
 
     /// Diagnostic manuel du modèle d'état ToUnicodeEx : `cargo test --release

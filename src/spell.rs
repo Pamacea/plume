@@ -118,6 +118,21 @@ fn is_word_char(c: char) -> bool {
     c.is_alphabetic() || matches!(c, '\'' | '’' | '-')
 }
 
+/// Spam : 3 lettres identiques consécutives (« ccccc ») — jamais une faute
+/// réelle, on se tait plutôt que de popper à côté.
+pub fn spam(mot: &str) -> bool {
+    let mut run = 0u8;
+    let mut prev = '\0';
+    for c in mot.chars() {
+        run = if c == prev { run + 1 } else { 1 };
+        prev = c;
+        if run >= 3 {
+            return true;
+        }
+    }
+    false
+}
+
 /// Accent → lettre de base : « grace » a distance 0 de « grâce » (sinon les 2
 /// substitutions d'accents le font sortir du top-3 au profit de « glace »…).
 fn deaccent(c: char) -> char {
@@ -275,6 +290,17 @@ mod tests {
         // borné : au-delà de `max`, la valeur renvoyée est `max + 1`
         assert_eq!(levenshtein("abc", "xyz", 2), 3);
         assert_eq!(levenshtein("abc", "xyzdefgh", 2), 3);
+    }
+
+    #[test]
+    fn spam_trois_lettres_identiques() {
+        assert!(spam("cccc"));
+        assert!(spam("aaaab"));
+        assert!(spam("xxxy"));
+        assert!(!spam("cc"));
+        assert!(!spam("bonjour"));
+        // égalité seulement : le garde alphabétique vit dans spell_popup
+        assert!(spam("333"));
     }
 
     #[test]

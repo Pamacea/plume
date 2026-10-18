@@ -92,6 +92,7 @@ impl Config {
             let tl = pat.len();
             pat.push(delim);
             if b.len() >= pat.len()
+                && boundary(&b, b.len() - pat.len())
                 && b[b.len() - pat.len()..] == pat[..]
                 && best.is_none_or(|(l, _)| tl > l)
             {
@@ -109,7 +110,10 @@ impl Config {
                 let mut pat = base.clone();
                 pat.extend(infl.chars());
                 pat.push(delim);
-                if b.len() < pat.len() || b[b.len() - pat.len()..] != pat[..] {
+                if b.len() < pat.len()
+                    || !boundary(&b, b.len() - pat.len())
+                    || b[b.len() - pat.len()..] != pat[..]
+                {
                     continue;
                 }
                 let key = (base.len() + infl.chars().count(), infl.is_empty());
@@ -282,6 +286,13 @@ pub fn is_delimiter(c: char) -> bool {
     matches!(c, ' ' | ',' | '.' | ';' | ':' | '!' | '?')
 }
 
+/// True si `pos` est une frontière de mot dans `b` : début de buffer, ou le
+/// caractère avant n'est ni lettre ni apostrophe/tiret — sans ça « à apprendre »
+/// déclenche le tic « prendre » (suffixe présent au milieu du mot).
+fn boundary(b: &[char], pos: usize) -> bool {
+    pos == 0 || !b[pos - 1].is_alphabetic() && !matches!(b[pos - 1], '\'' | '’' | '-')
+}
+
 // seed vide : le fichier livré porte les ≥ 1000 verbes ; absent → recréé vide
 const DEFAULT_VERBS: &str = "";
 
@@ -438,6 +449,10 @@ mod tests {
                     trigger: "super bien".into(),
                     alts: vec!["À merveille".into()],
                 },
+                Tic {
+                    trigger: "prendre".into(),
+                    alts: vec!["Saisir".into()],
+                },
             ],
             adjs: vec![],
             verbs: vec![],
@@ -510,6 +525,21 @@ mod tests {
     fn apostrophe_courbe() {
         let c = cfg();
         assert!(c.match_buffer("il dit c’est ").is_some());
+    }
+
+    /// Le déclencheur n'est valable qu'en frontière de mot : signalé sur
+    /// « Tu as encore à apprendre » qui déclenchait le tic « prendre ».
+    #[test]
+    fn frontiere_de_mot() {
+        let c = cfg();
+        assert!(c.match_buffer("Tu as encore à apprendre ").is_none());
+        assert_eq!(c.match_buffer("il va prendre ").unwrap().trigger, "prendre");
+        let c = cfg_adjs();
+        assert!(c.match_buffer("malheureux ").is_none());
+        assert_eq!(
+            c.match_buffer("il est heureux ").unwrap().trigger,
+            "heureux"
+        );
     }
 
     #[test]
