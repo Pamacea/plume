@@ -1,0 +1,62 @@
+# Adjectifs — Plume. Format : déclencheur|alt1|alt2|alt3 (un par ligne, # = commentaire)
+# La forme tapée peut être accordée (-e, -es, -s, -x) : les alternatives s'accordent avec.
+# Les formes irrégulières (beau, heureux…) ont leur propre ligne, pas de règle dédiée.
+grand|Considérable|Substantiel|Étendu|Ample|Imposant|Vaste
+petit|Modeste|Restreint|Menu|Minime|Infime|Réduit
+bon|Solide|Pertinent|Éprouvé|Fiable|Valable|Sain
+bonne|Solide|Pertinente|Éprouvée|Fiable|Valable|Saine
+mauvais|Défectueux|Périmé|Blâmable|Malfaisant|Médiocre|Inadmissible
+joli|Élégant|Recherché|Avenant|Mignon|Agréable|Attrayant
+beau|Joli|Élégant|Superbe|Ravissant|Pittoresque|Souhaitable
+belle|Jolie|Élégante|Superbe|Ravissante|Pittoresque|Souhaitable
+heureux|Comblé|Favorisé|Gratifié|Ravi|Reconnaissant|Satisfait
+heureuse|Comblée|Favorisée|Gratifiée|Ravie|Reconnaissante|Satisfaite
+nouveau|Récent|Inédit|Fraîchement|Actuel|Tout juste paru|Prochain
+nouvelle|Récente|Inédite|Tout juste paru|Actuelle|Prochaine|Tout juste parue
+rapide|Prompt|Véloce|Hâtif|Précipité|Ardent|Accéléré
+lent|Mesuré|Posé|Tranquille|Graduel|Paisible|Interminable
+gros|Considérable|Substantiel|Marqué|Abondant|Ample|Important
+long|Étendu|Prolixe|Continu|Développé|Prolongé|Interminable
+court|Concis|Summaire|Expéditif|Serré|Ramassé|Laconique
+chaud|Brûlant|Ardent|Cuisant|Torride|Incandescent|Bouillant
+froid|Glacial|Gelé|Impassible|Givré|Cristallin|Polaire
+jeune|Tendre|Récent|Novice|Juvénile|Débutant|Précoce
+vieux|Ancien|Vénérable|Honoré|Séculaire|Historique|Usé
+neuf|Inédit|Actuel|Intact|Récent|Inouï|Inviolé
+clair|Évident|Manifeste|Lumineux|Lucide|Éclatant|Transparent
+sombre|Funèbre|Obscur|Ténébreux|Terne|Morne|Voilé
+facile|Fluide|Limpide|Aisé|Simple|Commode|Pratique
+difficile|Complexe|Ardu|Corsé|Pénible|Rude|Ingrat
+simple|Limpide|Évident|Aisé|Clair|Élémentaire|Fruste
+important|Essentiel|Capital|Déterminant|Majeur|Marquant|Relevant
+intéressant|Pertinent|Éclairant|Stimulant|Attachant|Fécond|Provocant
+utile|Salutaire|Propice|Pratique|Profitable|Opportun|Viable
+nécessaire|Indispensable|Crucial|Vital|Obligatoire|Pressant|Requis
+inutile|Vain|Superflu|Stérile|Inopérant|Obsolète|Illusoire
+haut|Élevé|Sublime|Notable|Dominant|Éminent|Culminant
+bas|Infime|Modeste|Superficiel|Atténué|Rudimentaire|Menu
+large|Ample|Vaste|Étendu|Ouvert|Aéré|Immense
+étroit|Serré|Réduit|Confiné|Exigu|Restreint|Tassé
+plein|Rempli|Comble|Garni|Chargé|Gorgé|Surchargé
+vide|Dénudé|Nu|Dépourvu|Tari|Épuisé|Vacant
+vrai|Authentique|Sincère|Fondé|Véridique|Sûr|Réel
+faux|Erroné|Fallacieux|Illusoire|Invraisemblable|Dénaturé|Chimérique
+franc|Sincère|Ouvert|Direct|Loyal|Candide|Ingénu
+parfait|Excellent|Abouti|Irréprochable|Sans faille|Infaillible|Conforme
+médiocre|Passable|Ordinaire|Banal|Basique|Commun|Moyen
+rare|Exceptionnel|Insolite|Hors norme|Inhabituel|Inusité|Inaccoutumé
+fréquent|Habituel|Usuel|Courant|Récurrent|Continu|Attitré
+commun|Ordinaire|Courant|Répandu|Usuel|Basique|Générique
+solide|Robuste|Ferme|Assuré|Résistant|Ancré|Indéfectible
+fragile|Délicat|Frêle|Vulnérable|Précaire|Périssable|Tendre
+sain|Salubre|Vigoureux|Robuste|Herculéen|Bonne mine|Tonique
+aimable|Bienveillant|Agréable|Attentionné|Dévoué|Serviable|Prévenant
+poli|Courtois|Respectueux|Délicat|Honnête|Distingué|Éduqué
+fier|Digne|Noble|Superbe|Satisfait|Épanoui|Assumé
+lourd|Pesant|Massif|Accablant|Imposant|Écrasant|Tassé
+mince|Frêle|Délicat|Menu|Grêle|Étiolé|Fragile
+riche|Aisé|Fortuné|Opulent|Cossu|Nanti|Prospère
+pauvre|Modeste|Dénué|Chétif|Indigent|Désargenté|Humble
+sûr|Assuré|Certain|Fiable|Infaillible|Établi|Indubitable
+moderne|Actuel|Contemporain|Récent|Tout à la mode|En vogue|À la pointe
+ancien|Antique|Vénérable|Usé|Révolu|Obsolète|Passé

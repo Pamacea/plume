@@ -1,0 +1,258 @@
+# Tics de langage — Plume. Format : déclencheur|alt1|alt2|alt3 (un par ligne, # = commentaire)
+c'est|Cela constitue|Il s'agit de|Cela représente|Cela demeure|Cela devient|Cela reste
+de plus|En outre|Par ailleurs|Qui plus est|De surcroît|En plus|Également
+en fait|Concrètement|En vérité|Pour vrai|En réalité|Dans les faits|En pratique
+du coup|Par conséquent|Dès lors|Ainsi|En conséquence|De ce fait|C'est pourquoi
+par contre|En revanche|Toutefois|Néanmoins|À l'inverse|À l'opposé|En contrepartie
+après|Par la suite|Ultérieurement|Plus tard|Ensuite|Postérieurement|Dans la foulée
+en vrai|Honnêtement|En toute sincérité|Franchement|À cœur ouvert|En confiance|Pour tout dire
+quand même|Néanmoins|Malgré tout|Toutefois|Cependant|Tout compte fait|À tout le moins
+maintenant|À présent|Désormais|Dorénavant|Actuellement|En ce moment|À l'heure actuelle
+donc|Ainsi|Par conséquent|En conséquence|C'est pourquoi|Dès lors|Partant
+très|Particulièrement|Extrêmement|Hautement|Singulièrement|Véritablement|Grandement
+vraiment|Réellement|Effectivement|Singulièrement|Authentiquement|En vérité|Assurément
+super|Remarquable|Excellent|Parfait|Épatant|Splendide|Merveilleux
+super bien|À merveille|À souhait|À ravir|À la perfection|À miracle|De façon accomplie
+clairement|Manifestement|Sans équivoque|De façon évidente|De manière limpide|Visiblement|Sans ambages
+honnêtement|En toute franchise|Pour être direct|Sincèrement|À cœur ouvert|En toute sincérité|Pour tout dire
+forcément|Inévitablement|Nécessairement|Logiquement|Par nécessité|De toute évidence|En toute logique
+simplement|Tout bonnement|Uniquement|Rien de plus|Purement et simplement|Sans plus|De façon simple
+globalement|Dans l'ensemble|En règle générale|De manière générale|En général|De façon globale|Grosso modo
+tout simplement|À la limite|Uniquement|Rien de plus|Tout bonnement|Sans plus|À la rigueur
+un peu|Légèrement|Un tantinet|Modérément|À la légère|Faiblement|Un brin
+il y a|On recense|Il existe|On compte|On relève|Il se trouve|On dénombre
+au final|Finalement|En définitive|En somme|En dernier ressort|Pour finir|En fin de compte
+finalement|En définitive|En somme|Pour finir|À la fin|En dernier lieu|Au bout du compte
+petit à petit|Progressivement|Graduellement|Pas à pas|À petits pas|Insensiblement|Étape par étape
+de plus en plus|Progressivement|De jour en jour|De manière croissante|Sans cesse|Toujours davantage|De façon grandissante
+à la fin|À l'issue|Pour finir|Une fois terminé|Au terme|Finalement|Une fois achevé
+tout d'abord|Premièrement|En premier lieu|D'emblée|Dans un premier temps|Avant tout|Préalablement
+le fait que|Ce que|Ce constat que|Ce qui|Le constat que|L'aspect que|Ce phénomène que
+cela dit|Toutefois|Cela étant|Néanmoins|Ceci posé|Cela entendu|Quoi qu'il en soit
+en ce qui concerne|Concernant|S'agissant de|Pour ce qui est de|Quant à|À l'égard de|Touchant
+il faut|Nous devons|Je dois|Il est impératif de|Il convient de|Il importe de|Il nous incombe de
+on peut|Nous pouvons|Il est possible de|Il est envisageable de|Il est loisible de|Il demeure possible de|Il est permis de
+permet de|Offre la possibilité de|Autorise|Ouvre la voie à|Met à même de|Facilite|Prédispose à
+afin de|Pour|De façon à|Dans le but de|En vue de|Par souci de|Dans l'intention de
+grâce à|Via|Moyennant|Par l'intermédiaire de|Au moyen de|Par le truchement de|En raison de
+d'un certain point de vue|Sous cet angle|De ce point de vue|Vu sous cet angle|À cet égard|Sous cet aspect|Sous cet éclairage
+à mon avis|Je considère|Pour ma part|Selon moi|À mes yeux|D'après moi|À mon sens
+quelque part|D'une certaine manière|À certains égards|En un sens|En quelque mesure|En une certaine mesure|À sa manière
+intéressant|Pertinent|Éclairant|Stimulant|Attachant|Fécond|Séduisant
+important|Essentiel|Capital|Déterminant|Majeur|Crucial|Significatif
+basique|Élémentaire|Fondamental|Courant|Commun|Usuel|Simple
+simple|Limpide|Évident|Aisé|Facile|Clair|Épuré
+bon|Solide|Pertinent|Éprouvé|Fiable|Sain|Valable
+bonne|Solide|Pertinente|Éprouvée|Fiable|Saine|Valable
+gros|Considérable|Substantiel|Marqué|Abondant|Ample|Appréciable
+grosse|Considérable|Substantielle|Marquée|Abondante|Ample|Appréciable
+difficile|Complexe|Ardu|Corsé|Pénible|Épineux|Laborieux
+facile|Fluide|Limpide|Aisé|Simple|Sans difficulté|Sans peine
+magnifique|Superbe|Éblouissant|Merveilleux|Splendide|Épatant|Somptueux
+génial|Remarquable|Exceptionnel|Abouti|Exemplaire|Éblouissant|Prodigieux
+critique|Pivotal|Décisif|Central|Délicat|Crucial|Sensible
+crucial|Essentiel|Vital|Déterminant|Capital|Majeur|Primordial
+chose|Élément|Notion|Détail|Affaire|Question|Matière
+truc|Élément|Affaire|Détail|Notion|Objet|Matière
+genre|Notamment|Comme|Entre autres|Tel que|À l'image de|Semblable à
+en réalité|De fait|En vérité|Concrètement|En fait|À la vérité|Dans les faits
+# — Extension globale —
+en gros|Dans l'ensemble|Grosso modo|Pour l'essentiel|En substance|De façon schématique|Sommairement
+bref|Somme toute|En résumé|Pour couper court|En un mot|Pour aller à l'essentiel|Pour faire court
+du genre|Tel que|Notamment|À l'instar de|À la manière de|Sur le modèle de|Comme
+du style|Du calibre de|De ce type|À l'image de|À la manière de|Sur le modèle de|Du même acabit
+en même temps|Par ailleurs|Concurremment|Tout en|Simultanément|À la fois|De concert
+au jour d'aujourd'hui|À l'heure actuelle|De nos jours|À ce jour|Aujourd'hui|À l'heure qu'il est|Présentement
+à la limite|Au pire|À la rigueur|En dernière instance|Tout au plus|Au mieux|À la grande rigueur
+jusqu'à preuve du contraire|Jusqu'à nouvel ordre|Sauf réfutation|En l'absence de tout démenti|Faute de réfutation|Sauf preuve contraire|À défaut de contestation
+de toute façon|En toute hypothèse|Quoi qu'il en soit|Dans tous les cas|En tout état de cause|Quoi qu'il arrive|Quoi qu'on en dise
+en tout cas|En tout état de cause|Quoi qu'il en soit|En toute hypothèse|Dans tous les cas|En toute occurrence|Pour le moins
+au niveau de|Au plan de|Sur le plan de|Concernant|Quant à|Sous l'angle de|À propos de
+par rapport à|Au regard de|Comparativement à|Face à|À l'égard de|Vis-à-vis de|Concernant
+au niveau visuel|Sur le plan visuel|Du point de vue esthétique|En apparence|Sous l'angle visuel|Pour ce qui est de l'image|Du point de vue des apparences
+au niveau financier|Sur le plan financier|Du point de vue économique|En matière financière|Sous l'angle financier|Pour ce qui est de l'argent|Sous l'aspect économique
+dans la foulée|Immédiatement après|Tout juste après|À la suite immédiate|Aussitôt après|Dans les instants qui suivent|Sur-le-champ
+tout de suite|Sans délai|Sans attendre|À l'instant|Immédiatement|Aussitôt|Sans plus attendre
+de nos jours|À l'heure actuelle|À notre époque|À présent|Aujourd'hui|En ce temps-ci|À l'ère actuelle
+à un moment donné|À un certain moment|Un jour ou l'autre|À telle ou telle occasion|À un instant quelconque|À un temps donné|En cours de route
+au bout du compte|En définitive|En dernière analyse|Somme toute|Pour finir|À la longue|Une fois tout pesé
+en gros modo|Dans les grandes lignes|Pour l'essentiel|De manière schématique|Grosso modo|Sommairement|En substance
+ceci étant dit|Cela posé|Cela admis|Une fois ceci établi|Cela établi|Ceci reconnu|Cela rappelé
+d'un autre côté|De l'autre côté|À l'inverse|Pour autant|En revanche|À l'opposé|Inversement
+à première vue|En apparence|De prime abord|Au premier abord|Au premier coup d'œil|À la première occurrence|Superficiellement
+dans un premier temps|En première intention|À titre initial|Pour commencer|Au stade initial|Pour l'heure|En ouverture
+dans un second temps|En second lieu|À un stade ultérieur|Par la suite|Ensuite|À l'étape suivante|Ultérieurement
+au fur et à mesure|Progressivement|Par étapes|Graduellement|Pas à pas|De proche en proche|Étape par étape
+en théorie|En principe|Théoriquement|De prime abord|En hypothèse|Dans la théorie|À priori
+en pratique|En réalité|Concrètement|Dans les faits|En application|Effectivement|À l'usage
+normalement|En principe|En temps normal|Par principe|En règle générale|Habituellement|Dans l'ordre des choses
+apparemment|Vraisemblablement|À ce qu'il semble|Semble-t-il|Pour ce qu'il paraît|À en juger|Selon toute vraisemblance
+un tout petit peu|Infimement|À peine|Légèrement|À la marge|Au minimum|Un tantinet
+limite|À la rigueur|Dans une certaine mesure|Au pire|Tout au plus|Au mieux|À la grande rigueur
+plutôt|Somme toute|Plus exactement|Dirais-je|Relativement|Assez|Un tantinet
+sans doute|Probablement|En toute vraisemblance|À coup sûr|Sans aucun doute|Assurément|Vraisemblablement
+à priori|En théorie|De prime abord|En principe|Au premier abord|Au premier examen|De façon préliminaire
+peut-être|Probablement|Il se pourrait|Sans doute|Fort probablement|En toute probabilité|Cela n'est pas exclu
+grossièrement|De manière approximative|À très gros traits|Schématiquement|Sommairement|À grands traits|De façon imprécise
+approximativement|À peu de choses près|De manière approchée|Grosso modo|À vue de nez|En gros|À la louche
+pour ainsi dire|D'une certaine façon|En un sens|Virtuellement|En quelque sorte|Si l'on peut dire|En définitive
+en quelque sorte|D'une certaine façon|À sa manière|En un sens|Pour ainsi dire|Si l'on veut|En quelque mesure
+vis-à-vis de|À l'égard de|Au regard de|Face à|Quant à|Concernant|À l'endroit de
+histoire de|Afin de|Dans l'intention de|Par souci de|De manière à|Pour|Dans le dessein de
+grave|Véritablement|Hautement|Considérablement|Absolument|À outrance|Au plus haut point
+trop|Excessivement|À l'excès|Par excès|Au-delà du raisonnable|À l'extrême|Démesurément
+hyper|Extrêmement|Hautement|Souverainement|Absolument|Au plus haut point|Prodigieusement
+ultra|Au plus haut degré|Extrêmement|Hautement|Souverainement|Au plus haut point|Au comble
+tellement|À un tel point|Si profondément|À ce point|À un tel degré|À ce point même|Infiniment
+carrément|Sans détour|Franchement|Résolument|Entièrement|Sans ambages|Sans réserve
+franchement|En toute franchise|Pour tout dire|À cœur ouvert|En toute sincérité|Pour être clair|Sans faux-fuyant
+absolument|Sans nulle exception|Impérativement|Entièrement|Sans réserve|En tout point|Radicalement
+véritablement|Authentiquement|Réellement|En toute vérité|En toute authenticité|À la vérité|Sans artifice
+extrêmement|Au plus haut degré|Souverainement|À un degré rare|Au comble|À l'extrême|Au-delà de toute mesure
+terriblement|Follement|À un point étonnant|Excessivement|À un point stupéfiant|Sans mesure|Prodigieusement
+infiniment|Sans mesure|Au-delà de toute mesure|Immensément|Sans fin|Jusqu'à l'infini|De façon illimitée
+incroyablement|À un degré stupéfiant|Étonnamment|Prodigieusement|À un point inouï|D'une façon stupéfiante|De manière stupéfiante
+hallucinant|Stupéfiant|Fabuleux|Déconcertant|Renversant|Ahurissant|Inouï
+dingue|Extraordinaire|Prodigieux|Époustouflant|Renversant|Ahurissant|Surprenant
+fou|Dément|Extraordinaire|Frénétique|Délirant|Insensé|Excentrique
+énorme|Considérable|Colossal|Immense|Démesuré|Gigantesque|Impressionnant
+géant|Colossal|Pantagruélique|Démesuré|Gigantesque|Cyclopéen|Sans précédent
+sincèrement|En toute sincérité|À cœur ouvert|Sans faux-fuyant|En toute franchise|Franchement|À visage découvert
+à mon sens|Selon ma conviction|Pour ma part|À mes yeux|À mon point de vue|De mon point de vue|Selon mon appréciation
+personnellement|Pour ma part|De mon côté|En ce qui me concerne|Pour ce qui me regarde|À titre personnel|Au plan personnel
+selon moi|À mon sens|Pour ma part|Suivant ma conviction|D'après moi|À mes yeux|Je considère
+je pense que|J'estime que|Il me paraît que|Je suis d'avis que|Je crois que|Mon avis est que|Il me semble que
+je trouve que|Je tiens que|Il m'apparaît que|À mon sens|Je juge que|Mon sentiment est que|Je vois que
+je crois que|Je suis porté à croire que|Il m'est avis que|J'ai pour opinion que|Je pense que|Il me semble que|Mon sentiment est que
+j'ai l'impression que|Il me semble que|J'ai le sentiment que|Tout porte à croire que|J'ai la conviction que|Tout indique que|On dirait que
+si tu veux mon avis|Si vous me le permettez|Permettez-moi de dire|À titre personnel|Si vous voulez bien|Avec votre permission|À mon humble avis
+pour être tout à fait franc|Pour être sans réserve|En toute transparence|Pour tout dire|Pour être parfaitement clair|À cœur ouvert|Pour être précis
+à vrai dire|À dire vrai|Pour être exact|En vérité|À la vérité|À proprement parler|En toute honnêteté
+il me semble|À ce qu'il paraît|Il m'apparaît|Je serais tenté de le croire|Semble-t-il|Tout porte à croire|À ce qu'on dit
+d'après ce que je sais|Selon mes informations|Pour ce que je sais|Autant que je sache|À ma connaissance|De ce que je retiens|À ce que je peux en juger
+de mon expérience|D'après mon expérience|À la lumière de mon parcours|Selon l'expérience acquise|Au fil de mon parcours|En vertu de mon expérience|De mon vécu
+faire|Réaliser|Accomplir|Effectuer|Exécuter|Pratiquer|Mettre en œuvre
+mettre|Disposer|Installer|Placer|Poser|Établir|Loger
+avoir|Disposer de|Détenir|Posséder|Compter à son actif|Avoir en partage|Posséder de droit
+être|Constituer|Représenter|Se trouver|Demeurer|Rester|S'avérer
+donner|Fournir|Accorder|Offrir|Octroyer|Concéder|Prodiguer
+dire|Énoncer|Déclarer|Affirmer|Signaler|Proclamer|Avancer
+voir|Observer|Percevoir|Considérer|Remarquer|Discerner|Constater
+prendre|Opter pour|Se charger de|Recueillir|Choisir|Amasser|Se saisir de
+trouver|Estimer|Juger|Discerner|Constater|Déceler|Reconnaître
+penser|Estimer|Réfléchir|Concevoir|Méditer|Raisonner|Songer
+vouloir|Souhaiter|Désirer|Compter|Entendre|Prétendre|Désirer ardemment
+pouvoir|Il est loisible de|Avoir la capacité de|Rien ne l'interdit|Il est en mesure de|Il serait possible de|Il se peut que
+devoir|Il convient de|Il est tenu de|S'obliger à|Il a l'obligation de|Il lui incombe de|Il lui est prescrit de
+passer|Traverser|Transiter|Écouler|Franchir|Parcourir|Emprunter
+amener|Conduire à|Mener à|Entraîner|Ouvrir la voie à|Provoquer|Engendrer
+s'occuper de|Veiller à|Se consacrer à|Prendre en charge|Assurer la gestion de|Œuvrer à|Se pencher sur
+pousser à|Inciter à|Tendre à|Porter à|Concourir à|Inviter à|Engager à
+marcher|Fonctionner|Opérer|Évoluer|Être opérationnel|Se dérouler|Tourner rond
+changer|Transformer|Modifier|Amender|Réviser|Altérer|Infléchir
+montrer|Démontrer|Illustrer|Exposer|Mettre en évidence|Révéler|Éclairer
+machin|Objet|Chose|Détail|Affaire|Article|Bagatelle
+affaire|Dossier|Question|Matière|Thème|Objet|Domaine
+histoire|Récit|Anecdote|Trame|Chronique|Narration|Épisode
+problème|Difficulté|Enjeu|Obstacle|Embarras|Nœud|Complication
+souci|Préoccupation|Inquiétude|Empêchement|Tracas|Perplexité|Charge
+question|Interrogation|Demande|Problématique|Doute|Enjeu|Mystère
+idée|Notion|Conception|Intuition|Pensée|Conjecture|Vision
+travail|Labeur|Besogne|Œuvre|Tâche|Effort|Industrie
+résultat|Issue|Dénouement|Bilan|Conclusion|Épilogue|Sort
+changement|Évolution|Mutation|Transformation|Basculement|Renouvellement|Inflexion
+façon|Mode|Procédé|Manière|Modalité|Méthode|Tour de main
+manière|Mode|Procédé|Façon|Modalité|Méthode|Usage
+côté|Aspect|Versant|Égard|Facette|Plan|Volet
+domaine|Champ|Secteur|Ressort|Territoire|Sphère|Compétence
+moment|Instant|Occasion|Période|Circonstance|Époque|Tournant
+situation|Conjoncture|Position|Configuration|Posture|Dispositif|Donne
+point|Aspect|Détail|Considération|Élément|Facette|Nuance
+effet|Conséquence|Portée|Répercussion|Impact|Retentissement|Sillage
+mauvais|Médiocre|Malsain|Défectueux|Blâmable|Vicieux|Malfaisant
+grand|Considérable|Étendu|Vaste|Ample|Imposant|Développé
+petit|Modeste|Réduit|Menu|Chétif|Infime|Restreint
+vrai|Authentique|Réel|Exact|Fondé|Véridique|Conforme
+faux|Inexact|Erroné|Fallacieux|Illusoire|Insoutenable|Creux
+beau|Élégant|Agréable|Raffiné|Superbe|Gracieux|Majestueux
+dur|Rigoureux|Ardu|Sévère|Rude|Pénible|Intraitable
+nouveau|Récent|Inédit|Dernier|Actuel|Tout juste paru|Frais
+ancien|Antérieur|Préexistant|Vénérable|Passé|Éloigné|Précédent
+fort|Vigoureux|Prononcé|Intense|Puissant|Robuste|Soutenu
+faible|Modeste|Léger|Défaillant|Chétif|Dérisoire|Précaire
+clair|Limpide|Explicite|Transparent|Net|Lucide|Évident
+sombre|Obscur|Ténébreux|Mélancolique|Funèbre|Terne|Morne
+juste|Équitable|Exact|Approprié|Convenable|Adéquat|Séant
+égal|Identique|Équivalent|Uniforme|Semblable|Homogène|Pareil
+différent|Dissemblable|Distinct|Hétérogène|Divers|Séparé|Disparate
+rapidement|Promptement|À grand train|Sans délai|À vive allure|Aussitôt|Dans les meilleurs délais
+bientôt|Sous peu|À brève échéance|Prochainement|Dans un instant|À court terme|Dans peu
+toujours|En tout temps|Perpétuellement|À jamais|En permanence|Sans interruption|Continûment
+jamais|À aucun moment|Nullement|En aucun cas|À aucun instant|À aucun égard|À nul moment
+souvent|Fréquemment|Régulièrement|Maintes fois|À maintes reprises|De manière répétée|À intervalles rapprochés
+parfois|De temps à autre|À l'occasion|En certaines occurrences|Ça et là|À des intervalles|En des cas isolés
+déjà|D'ores et déjà|Jusqu'ici|Préalablement|Auparavant|Précédemment|À l'avance
+soudain|Brusquement|Inopinément|À l'improviste|Tout à coup|Subitement|Sans prévenir
+enfin|Pour finir|En définitive|Après force attente|À la fin|Finalement|Après tout
+en ce moment|À l'heure actuelle|Actuellement|En cette période|En ce temps-ci|Présentement|À cet instant
+à l'avenir|Par la suite|Dans les temps à venir|À brève échéance|Ultérieurement|Pour la suite|Plus loin
+désormais|Dorénavant|Dès à présent|Pour l'avenir|À partir de maintenant|Dès lors|À compter de ce jour
+régulièrement|De façon continue|Périodiquement|À intervalles réguliers|Sans cesse|Continûment|À intervalles constants
+immédiatement|Sans délai|Sur-le-champ|À l'instant|Aussitôt|Dans l'immédiat|Sans plus tarder
+rarement|Peu souvent|À de rares occasions|Fort peu|Exceptionnellement|À peine|De loin en loin
+toujours autant|Plus que jamais|Tout autant|Avec constance|Non moins|Sans relâche|Avec la même constance
+à l'époque|Autrefois|En ce temps-là|Jadis|En son temps|À cette époque|Naguère
+au début|Dès l'origine|En ouverture|Au premier stade|À l'origine|Initialement|Aux premiers pas
+entre-temps|Pendant ce temps|En attendant|Durant ce laps|Cependant|Dans l'intervalle|Pour l'heure
+parler de|Évoquer|Traiter de|Aborder|Discourir de|S'entretenir de|Rapporter de
+expliquer|Exposer|Préciser|Mettre en lumière|Clarifier|Détailler|Éclairer
+montrer que|Démontrer que|Établir que|Révéler que|Prouver que|Signifier que|Conforter l'idée que
+prouver|Établir|Démontrer|Attester|Conforter|Étayer|Sceller
+dire que|Affirmer que|Soutenir que|Énoncer que|Avancer que|Laisser entendre que|Prétendre que
+savoir|Connaître|Maîtriser|Avoir connaissance de|Être informé de|Connaître par cœur|Tenir pour établi
+comprendre|Saisir|Appréhender|Cerner|S'assimiler|Déchiffrer|Voir clair
+penser à|Songer à|Méditer sur|Considérer|Réfléchir à|Rêver à|Attacher de l'importance à
+chercher|Rechercher|S'enquérir|Explorer|Sonder|Fouiller|Scruter
+demander|Solliciter|Requérir|Formuler une demande|Émettre une requête|Implorer|Réclamer
+répondre|Répliquer|Opposer|Riposter|Rétorquer|Rebondir|Contre-attaquer
+aider|Soutenir|Appuyer|Secourir|Épauler|Prêter main-forte|Tendre la main
+utiliser|Employer|Exploiter|Mettre à profit|Se servir de|Mettre en œuvre|Mobiliser
+essayer|Tenter|Entreprendre|Tâcher de|S'efforcer de|Viser à|Prétendre à
+commencer|Entamer|Initier|Procéder|Démarrer|Inaugurer|Ouvrir
+finir|Achever|Terminer|Conclure|Parachever|Clore|Mettre un terme à
+garder|Préserver|Conserver|Retenir|Ménager|Maintenir|Veiller sur
+perdre|Égarer|Dissiper|Laisser échapper|Laisser filer|Sacrifier|Laisser fuir
+gagner|Remporter|Décrocher|Triompher de|Rapporter|Obtenir|Récolter
+créer|Élaborer|Produire|Instaurer|Concevoir|Fonder|Générer
+superbe|Éblouissant|Magnifique|Sublime|Splendide|Épatant|Ravissant
+nul|Médiocre|Défaillant|Sans valeur|Chétif|Insignifiant|Insuffisant
+bizarre|Étrange|Singulier|Déconcertant|Mystérieux|Inusuel|Aberrant
+étrange|Bizarre|Anormal|Étonnant|Mystérieux|Inusuel|Déconcertant
+particulier|Spécifique|Singulier|Propre|Restreint|Dédié|Personnalisé
+normal|Ordinaire|Usuel|Conforme|Courant|Habituel|Commun
+ennuyeux|Fastidieux|Lasant|Rébarbatif|Pesant|Monotone|Usant
+compliqué|Alambiqué|Complexe|Enchevêtré|Tortueux|Empêtré|Labyrinthique
+incroyable|Stupéfiant|Extraordinaire|Inouï|Ahurissant|Renversant|Prodigieux
+formidable|Exemplaire|Splendide|Merveilleux|Épatant|Admirable|Remarquable
+pratique|Opportun|Fonctionnel|Commode|Usuel|Facile|Bien agencé
+utile|Profitable|Salutaire|Pertinent|Pratique|Opportun|Propice
+inutile|Superflu|Vain|Inopérant|Inefficace|Désuet|Stérile
+nécessaire|Indispensable|Impératif|Requis|Obligatoire|Vital|Pressant
+à cause de|En raison de|Par suite de|Du fait de|Par l'effet de|Compte tenu de|Par le fait de
+malgré|Nonobstant|En dépit de|Quoique|Sans tenir compte de|À l'encontre de|Contrairement à
+à travers|Par le biais de|Au travers de|Par l'intermédiaire de|Au moyen de|Moyennant|Sous couvert de
+vis-à-vis|À l'égard de|Concernant|Quant à|Envers|Touchant|Face à
+par opposition à|À l'inverse de|Contrairement à|Par contraste avec|À l'encontre de|À la différence de|À l'opposé de
+en comparaison de|Au regard de|Comparativement à|Face à|À côté de|À l'aune de|Par rapport à
+en sus de|En plus de|Outre|Par-delà|Au-delà de|En supplément de|Par-dessus
+sans compter|Outre|En plus de|Ajouté à|Y compris|En y ajoutant|Couplé à
+à l'exception de|Hormis|Sauf|Mis à part|À part|À l'écart de|Excepté
+si ce n'est|À défaut de|Faute de|Sinon|À moins que|Si tant est que|Faute de quoi
+autrement dit|En d'autres termes|Pour le dire autrement|Autrement|En clair|Pour mieux dire|Formulé autrement
+c'est-à-dire|À savoir|Soit|En d'autres termes|Autrement dit|À d'autres mots|Pour préciser
+en clair|Sans détour|De façon explicite|Nettement|En termes clairs|Sans fard|Précisément
+en somme|Somme toute|En définitive|Pour l'essentiel|En bref|En raccourci|Bref
+en résumé|En synthèse|Pour résumer|Somme toute|En bref|En raccourci|Pour finir
+pour conclure|Pour achever|En dernier lieu|Au terme|Pour finir|En guise de clôture|En ultime analyse
+pour terminer|Pour achever|Pour clore|Au terme|Pour finir|Pour conclure|En dernier ressort
+et ainsi de suite|Et le reste|Sans plus|Entre autres|De la même façon|Toujours ainsi|Et cætera

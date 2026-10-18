@@ -1,0 +1,35 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Tests
+        run: cargo test
+      - name: Build
+        run: cargo build --release
+      - name: Paquet zip
+        shell: pwsh
+        run: |
+          $stage = "plume-win64"
+          New-Item -ItemType Directory $stage | Out-Null
+          Copy-Item target/release/plume.exe $stage/
+          Copy-Item data $stage/data
+          Copy-Item tics.txt, adjectifs.txt, verbes.txt $stage/
+          Copy-Item README.md, LICENSE $stage/
+          Compress-Archive -Path $stage -DestinationPath plume-win64.zip
+      - name: Publier la release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: plume-win64.zip
+          generate_release_notes: true

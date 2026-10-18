@@ -1,0 +1,9 @@
+/target
+/tools/target
+# sources téléchargées par tools/ (374 Mo) : régénérables via `cargo run` dans tools/
+/tools/cache/
+/.smite
+plume.log
+nul
+# config locale de l'utilisateur (créée au premier lancement)
+exclusions.txt

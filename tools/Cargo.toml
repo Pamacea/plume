@@ -1,0 +1,15 @@
+[package]
+name = "gen-data"
+version = "0.1.0"
+edition = "2021"
+description = "Génère data/conjugaison.json, data/mots.txt (phase 4) et data/defs.txt"
+# Deux binaires : `cargo run --release` = phase 4, `--bin defs` = définitions.
+default-run = "gen-data"
+
+# Workspace indépendant : ne touche pas au Cargo.toml racine de plume.
+[workspace]
+
+[dependencies]
+# defs : décompression du dump kaikki (flate2 pur Rust, sans dépendance système)
+flate2 = "1"
+serde_json = "1"

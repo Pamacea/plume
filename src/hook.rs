@@ -1,0 +1,432 @@
+//! Hook clavier global (WH_KEYBOARD_LL) : reconstitue les caractères tapés
+//! via ToUnicodeEx et avale ↑↓/Entrée/Échap quand la bulle est ouverte.
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::{Mutex, OnceLock};
+
+use eframe::egui;
+use windows::Win32::Foundation::{CloseHandle, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::Threading::{
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, GetKeyboardLayout, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, RegisterHotKey,
+    ToUnicodeEx, UnregisterHotKey, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DOWN, VK_END, VK_ESCAPE,
+    VK_HOME, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR,
+    VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT, VK_UP,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
+    KBDLLHOOKSTRUCT, MSG, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL,
+    WM_HOTKEY, WM_KEYDOWN, WM_SYSKEYDOWN,
+};
+use windows::core::PWSTR;
+
+#[derive(Debug, Clone, Copy)]
+pub enum KeyMsg {
+    Char(char),
+    Backspace,
+    Up,
+    Down,
+    Return,
+    Escape,
+    /// une autre touche (flèches latérales, tab…) : ferme la bulle sans remplacer
+    Other,
+    /// raccourci clavier (Ctrl+V…) : le presse-papiers a désynchronisé le buffer
+    Invalidate,
+}
+
+static TX: OnceLock<Sender<KeyMsg>> = OnceLock::new();
+/// contexte egui à réveiller : le hook doit réveiller le rendu pour réveiller
+/// l'app à chaque frappe utile (sinon elle attendrait le filet de 250 ms)
+static REPINT: OnceLock<egui::Context> = OnceLock::new();
+static POPUP_OPEN: AtomicBool = AtomicBool::new(false);
+static INJECT_TEST: AtomicBool = AtomicBool::new(false);
+/// pause globale : en true, hook_proc laisse passer toutes les frappes sans traiter
+static PAUSED: AtomicBool = AtomicBool::new(false);
+/// dernière touche morte vue (vk, scan) en attente de composition : l'état de
+/// ToUnicodeEx est PARTAGÉ avec l'app (constaté : son rendu suit nos appels) →
+/// on le réarme après chaque composition pour qu'elle compose aussi
+static DEAD: Mutex<Option<(u32, u32)>> = Mutex::new(None);
+/// noms de fichiers (minuscules) des apps exclues, chargés une fois dans `run`
+static EXCLUDED: OnceLock<Vec<String>> = OnceLock::new();
+
+/// identifiant du hotkey Ctrl+Alt+P (RegisterHotKey / WM_HOTKEY)
+const HOTKEY_PAUSE: i32 = 1;
+
+pub fn set_popup_open(v: bool) {
+    POPUP_OPEN.store(v, Ordering::Relaxed);
+}
+
+pub fn set_paused(v: bool) {
+    PAUSED.store(v, Ordering::Relaxed);
+}
+
+/// Enregistré une seule fois au premier pass `App::ui` (OnceLock).
+pub fn set_repaint_ctx(ctx: egui::Context) {
+    REPINT.set(ctx).ok();
+}
+
+/// Réveille le rendu — uniquement quand un message part vraiment :
+/// frappes ignorées et pause ne réveillent rien.
+fn repint() {
+    if let Some(c) = REPINT.get() {
+        c.request_repaint();
+    }
+}
+
+pub fn is_paused() -> bool {
+    PAUSED.load(Ordering::Relaxed)
+}
+
+/// Bascule la pause (hotkey Ctrl+Alt+P et menu tray) et referme la bulle ouverte :
+/// sans Invalidate, une bulle resterait affichée pendant que le hook ne la pilote plus.
+pub fn toggle_paused() -> bool {
+    let v = !is_paused();
+    set_paused(v);
+    if let Some(tx) = TX.get()
+        && tx.send(KeyMsg::Invalidate).is_ok()
+    {
+        repint();
+    }
+    v
+}
+
+pub fn run(tx: Sender<KeyMsg>) {
+    TX.set(tx).ok();
+    EXCLUDED.set(load_exclusions()).ok();
+    // shortcut: PLUME_INJECT_TEST accepte les frappes synthétisées (SendInput) pour test
+    // automatisé — jamais actif en fonctionnement normal, ça casserait la boucle anti-retrigger
+    INJECT_TEST.store(
+        std::env::var("PLUME_INJECT_TEST").is_ok(),
+        Ordering::Relaxed,
+    );
+    unsafe {
+        let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), None, 0)
+            .expect("SetWindowsHookExW a échoué");
+        crate::dlog::dlog("hook installé");
+        // Ctrl+Alt+P : hwnd = None → WM_HOTKEY est posté dans la file de CE thread,
+        // donc reçu par la boucle GetMessageW ci-dessous (pas de fenêtre dédiée).
+        if let Err(e) = RegisterHotKey(
+            None,
+            HOTKEY_PAUSE,
+            MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+            u32::from(b'P'),
+        ) {
+            crate::dlog::dlog(&format!("hotkey Ctrl+Alt+P non enregistrée : {e}"));
+        }
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+            if msg.message == WM_HOTKEY && msg.wParam.0 == HOTKEY_PAUSE as usize {
+                toggle_paused();
+                continue;
+            }
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        let _ = UnregisterHotKey(None, HOTKEY_PAUSE);
+        let _ = UnhookWindowsHookEx(hook);
+    }
+}
+
+unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        if code < 0 {
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
+        // en pause : aucune frappe traitée, aucun swallow — le hook fait juste transiter
+        if PAUSED.load(Ordering::Relaxed) {
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
+        let kb = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        // 0x10 = LLKHF_INJECTED : nos propres envois SendInput ne doivent pas alimenter le buffer
+        // (sinon accepter « En réalité » re-déclencherait la bulle en boucle)
+        let injected = kb.flags.0 & 0x10 != 0;
+        let ignore = injected && !INJECT_TEST.load(Ordering::Relaxed);
+        if ignore {
+            crate::dlog::dlog(&format!("ignoré injected vk={:#x}", kb.vkCode));
+        }
+        if !ignore
+            && let Some(msg) = classify(kb, wparam)
+            && !is_excluded()
+        {
+            crate::dlog::dlog(&format!("hook vk={:#x} -> {msg:?}", kb.vkCode));
+            let swallow = POPUP_OPEN.load(Ordering::Relaxed)
+                && matches!(
+                    msg,
+                    KeyMsg::Up | KeyMsg::Down | KeyMsg::Return | KeyMsg::Escape
+                );
+            if let Some(tx) = TX.get()
+                && tx.send(msg).is_ok()
+            {
+                repint();
+            }
+            if swallow {
+                crate::dlog::dlog("avale la touche");
+                return LRESULT(1);
+            }
+        }
+        CallNextHookEx(None, code, wparam, lparam)
+    }
+}
+
+fn classify(kb: &KBDLLHOOKSTRUCT, wparam: WPARAM) -> Option<KeyMsg> {
+    unsafe {
+        if wparam.0 != WM_KEYDOWN as usize && wparam.0 != WM_SYSKEYDOWN as usize {
+            return None;
+        }
+        let vk = kb.vkCode;
+
+        let down = |v: i32| GetAsyncKeyState(v) & 0x8000u16 as i16 != 0;
+        // AltGr = RMenu + Ctrl synthétique : on le laisse passer comme une frappe normale
+        let altgr = down(VK_RMENU.0 as i32);
+        // Ctrl+Alt+P = raccourci de pause : jamais traité comme une frappe, jamais swalloué
+        // (WM_HOTKEY le gère dans la boucle de messages du thread hook)
+        if vk == u32::from(b'P') && down(VK_CONTROL.0 as i32) && (down(VK_LMENU.0 as i32) || altgr)
+        {
+            return None;
+        }
+        if (down(VK_CONTROL.0 as i32) && !altgr) || down(VK_LWIN.0 as i32) || down(VK_RWIN.0 as i32)
+        {
+            return Some(KeyMsg::Invalidate);
+        }
+
+        if vk == VK_UP.0 as u32 {
+            return Some(KeyMsg::Up);
+        }
+        if vk == VK_DOWN.0 as u32 {
+            return Some(KeyMsg::Down);
+        }
+        if vk == VK_RETURN.0 as u32 {
+            return Some(KeyMsg::Return);
+        }
+        if vk == VK_ESCAPE.0 as u32 {
+            return Some(KeyMsg::Escape);
+        }
+        if vk == VK_BACK.0 as u32 {
+            return Some(KeyMsg::Backspace);
+        }
+        if vk == VK_LEFT.0 as u32
+            || vk == VK_RIGHT.0 as u32
+            || vk == VK_HOME.0 as u32
+            || vk == VK_END.0 as u32
+            || vk == VK_PRIOR.0 as u32
+            || vk == VK_NEXT.0 as u32
+            || vk == 0x2D
+            || vk == 0x2E
+            || vk == 0x09
+        {
+            // ← → Home End PgUp PgDn Ins Del Tab
+            return Some(KeyMsg::Other);
+        }
+        // modificateurs seuls (Shift/Ctrl/Alt/Caps/Win) : ni caractère ni fermeture de bulle
+        if matches!(
+            vk,
+            0x10 | 0xA0 | 0xA1 | 0x11 | 0xA2 | 0xA3 | 0x12 | 0xA4 | 0xA5 | 0x14 | 0x5B | 0x5C
+        ) {
+            return None;
+        }
+
+        to_char(kb).map(KeyMsg::Char)
+    }
+}
+
+/// shortcut: le nom de process est relu à chaque frappe ; si le buffer contient du
+/// texte saisi avant exclusion (ou dans une app exclue), il devient périmé au retour —
+/// faux positif possible, cas non géré.
+fn is_excluded() -> bool {
+    let Some(list) = EXCLUDED.get() else {
+        return false;
+    };
+    if list.is_empty() {
+        return false;
+    }
+    unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid as *mut u32));
+        if pid == 0 {
+            return false;
+        }
+        let Ok(proc) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return false;
+        };
+        let mut buf = [0u16; 260];
+        let mut size = buf.len() as u32;
+        let got = QueryFullProcessImageNameW(
+            proc,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+        .is_ok();
+        let _ = CloseHandle(proc);
+        if !got {
+            return false;
+        }
+        let path = String::from_utf16_lossy(&buf[..size as usize]);
+        let file = path.rsplit(['\\', '/']).next().unwrap_or("").to_lowercase();
+        list.contains(&file)
+    }
+}
+
+fn load_exclusions() -> Vec<String> {
+    let content = match std::fs::read_to_string("exclusions.txt") {
+        Ok(c) => c,
+        Err(_) => {
+            // premier lancement : on écrit un modèle commenté, la liste reste vide
+            let _ = std::fs::write(
+                "exclusions.txt",
+                "# Apps à exclure : un nom de fichier .exe par ligne, insensible à la casse.\n\
+                 # Les lignes commençant par # sont ignorées. Exemples :\n\
+                 # Discord.exe\n\
+                 # Steam.exe\n",
+            );
+            String::new()
+        }
+    };
+    parse_exclusions(&content)
+}
+
+fn parse_exclusions(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(str::to_lowercase)
+        .collect()
+}
+
+unsafe fn to_char(kb: &KBDLLHOOKSTRUCT) -> Option<char> {
+    unsafe {
+        let mut state = [0u8; 256];
+        for v in [
+            VK_SHIFT,
+            VK_LSHIFT,
+            VK_RSHIFT,
+            VK_CONTROL,
+            VK_LCONTROL,
+            VK_RCONTROL,
+            VK_MENU,
+            VK_LMENU,
+            VK_RMENU,
+            VK_CAPITAL,
+        ] {
+            if GetAsyncKeyState(v.0 as i32) & 0x8000u16 as i16 != 0 {
+                state[v.0 as usize & 0xFF] |= 0x80;
+            }
+        }
+        if GetAsyncKeyState(VK_CAPITAL.0 as i32) & 1i16 != 0 {
+            state[VK_CAPITAL.0 as usize & 0xFF] |= 0x01;
+        }
+        state[kb.vkCode as usize & 0xFF] |= 0x80;
+
+        let tid = GetWindowThreadProcessId(GetForegroundWindow(), None);
+        let hkl = GetKeyboardLayout(tid);
+        let mut buf = [0u16; 4];
+        let n = ToUnicodeEx(kb.vkCode, kb.scanCode, &state, &mut buf, 0, Some(hkl));
+        if n < 0 {
+            // dead key (^ ` ´…) : on remet l'état PARTAGÉ à zéro pour que
+            // TranslateMessage de l'app voie l'état propre et pose SON dead key
+            // (sans ça il compose avec le nôtre → « gr^^ace »), et on mémorise
+            // la touche pour réarmer l'état avant qu'elle ne compose
+            let mut junk = [0u16; 4];
+            let _ = ToUnicodeEx(kb.vkCode, kb.scanCode, &state, &mut junk, 0, Some(hkl));
+            *DEAD.lock().unwrap() = Some((kb.vkCode, kb.scanCode));
+            crate::dlog::dlog(&format!("dead key vk={:#x} réinitialisée", kb.vkCode));
+            return None;
+        }
+        if n == 0 {
+            return None;
+        }
+        // notre appel vient de consommer l'état mort posé par l'app : on le remet
+        // en place, sinon l'app recevrait la lettre non composée (« gre »).
+        // shortcut: plume en pause entre la touche morte et la lettre → DEAD non
+        // armé → un caractère possible non composé (cas rare, non géré)
+        if let Some((dvk, dscan)) = DEAD.lock().unwrap().take() {
+            let mut junk = [0u16; 4];
+            let _ = ToUnicodeEx(dvk, dscan, &state, &mut junk, 0, Some(hkl));
+            crate::dlog::dlog(&format!("réarmement dead key vk={dvk:#x}"));
+        }
+        String::from_utf16_lossy(&buf[..n as usize])
+            .chars()
+            .find(|c| !c.is_control())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn exclusions_ignore_commentaires_casse_et_espaces() {
+        let v = super::parse_exclusions("# Discord.exe\nSteam.EXE\n\n  vscode.exe  \n");
+        assert_eq!(v, vec!["steam.exe", "vscode.exe"]);
+    }
+
+    /// Diagnostic manuel du modèle d'état ToUnicodeEx : `cargo test --release
+    /// etat_to_unicode -- --ignored --nocapture`. Deux threads : A pose la touche
+    /// morte, B appuie sur « e » — composition = état partagé entre threads.
+    #[test]
+    #[ignore]
+    fn etat_to_unicode_partage_entre_threads() {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardLayout, ToUnicodeEx};
+        unsafe {
+            let hkl = GetKeyboardLayout(0);
+            let tou = |vk: u32| -> (i32, String) {
+                let mut state = [0u8; 256];
+                state[vk as usize & 0xFF] = 0x80;
+                let mut buf = [0u16; 4];
+                let n = ToUnicodeEx(vk, 0, &state, &mut buf, 0, Some(hkl));
+                let s = if n > 0 {
+                    String::from_utf16_lossy(&buf[..n as usize])
+                } else {
+                    String::new()
+                };
+                (n, s)
+            };
+            // sonde : touche morte de la disposition courante (reset après)
+            let mut dead = None;
+            for vk in 0xC0..=0xE1 {
+                if tou(vk).0 < 0 {
+                    dead = Some(vk);
+                    tou(vk);
+                    break;
+                }
+            }
+            let Some(dead) = dead else {
+                println!("aucune touche morte sur cette disposition — test sans objet");
+                return;
+            };
+            let (n1, _) = tou(dead); // thread A : état mort posé
+            // HKL (pointeur brut) n'est pas Send : on le transporte en usize
+            let hkl_usize = hkl.0 as usize;
+            let b = std::thread::spawn(move || {
+                let mut state = [0u8; 256];
+                state[0x45] = 0x80;
+                let mut buf = [0u16; 4];
+                unsafe {
+                    let hkl = windows::Win32::UI::Input::KeyboardAndMouse::HKL(hkl_usize as _);
+                    let n = ToUnicodeEx(0x45, 0, &state, &mut buf, 0, Some(hkl));
+                    if n > 0 {
+                        String::from_utf16_lossy(&buf[..n as usize])
+                    } else {
+                        format!("n={n}")
+                    }
+                }
+            })
+            .join()
+            .unwrap();
+            if tou(dead).0 < 0 {
+                tou(dead); // nettoyage : remise à zéro si l'état est encore armé
+            }
+            println!("A dead vk={dead:#x} → n={n1} | B « e » → {b:?}");
+            println!(
+                "{}",
+                if b == "ê" {
+                    "→ ÉTAT PARTAGÉ entre threads (modèle retenu par le fix reset+réarmement)"
+                } else {
+                    "→ états indépendants par thread"
+                }
+            );
+        }
+    }
+}
