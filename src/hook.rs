@@ -11,10 +11,11 @@ use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetKeyboardLayout, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, RegisterHotKey,
-    ToUnicodeEx, UnregisterHotKey, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DOWN, VK_END, VK_ESCAPE,
-    VK_HOME, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR,
-    VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT, VK_UP,
+    GetAsyncKeyState, GetKeyState, GetKeyboardLayout, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
+    RegisterHotKey, ToUnicodeEx, UnregisterHotKey, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DOWN,
+    VK_END, VK_ESCAPE, VK_HOME, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
+    VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+    VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
@@ -393,7 +394,11 @@ unsafe fn to_char(kb: &KBDLLHOOKSTRUCT) -> Option<char> {
                 state[v.0 as usize & 0xFF] |= 0x80;
             }
         }
-        if GetAsyncKeyState(VK_CAPITAL.0 as i32) & 1i16 != 0 {
+        // le bit &1 de GetAsyncKeyState n'est PAS le verrou (« pressé depuis le
+        // dernier appel ») : CapsLock se lisait toujours off → hook et app
+        // divergeaient (ex. CapsLock+3 : l'app tape `3`, le hook voit `"` et la
+        // règle 5 mange le 3). MSDN impose GetKeyState pour le toggle.
+        if GetKeyState(VK_CAPITAL.0 as i32) & 1i16 != 0 {
             state[VK_CAPITAL.0 as usize & 0xFF] |= 0x01;
         }
         state[kb.vkCode as usize & 0xFF] |= 0x80;
@@ -459,6 +464,52 @@ mod tests {
         assert_eq!(flow(KeyMsg::Char('a'), false), (true, false));
         // Ctrl+V pendant la bulle : transmis (ferme la bulle), non avalé
         assert_eq!(flow(KeyMsg::Invalidate, true), (true, false));
+    }
+
+    /// Pourquoi `to_char` lit le verrou CapsLock avec `GetKeyState` : le bit
+    /// `&1` de `GetAsyncKeyState` n'est PAS le toggle (« pressé depuis le
+    /// dernier appel ») et diverge de l'état réel, alors que l'app (TranslateMessage)
+    /// lit `GetKeyState`. Divergence = plume corrige sur un faux caractère.
+    /// `cargo test --release sonde_async_caps -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn sonde_async_caps() {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            GetAsyncKeyState, GetKeyState, VK_CAPITAL,
+        };
+        unsafe extern "system" {
+            fn keybd_event(vk: u8, scan: u8, flags: u32, extra: usize);
+        }
+        let k = |f: unsafe fn(i32) -> i16| (unsafe { f(VK_CAPITAL.0 as i32) } & 1) != 0;
+        let t0 = k(GetKeyState);
+        println!(
+            "avant:      GetKeyState={t0} GetAsyncKeyState={}",
+            k(GetAsyncKeyState)
+        );
+        unsafe {
+            keybd_event(0x14, 0, 0, 0);
+            keybd_event(0x14, 0, 2, 0)
+        };
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let t1 = k(GetKeyState);
+        println!(
+            "apres 1er:  GetKeyState={t1} GetAsyncKeyState={}",
+            k(GetAsyncKeyState)
+        );
+        unsafe {
+            keybd_event(0x14, 0, 0, 0);
+            keybd_event(0x14, 0, 2, 0)
+        };
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let (t2, a2) = (k(GetKeyState), k(GetAsyncKeyState));
+        println!("apres 2eme: GetKeyState={t2} GetAsyncKeyState={a2}");
+        assert_eq!(t1, !t0, "GetKeyState doit suivre la bascule (contrôle)");
+        assert_eq!(t2, t0, "GetKeyState doit revenir à l'état initial");
+        if a2 != t2 {
+            println!(
+                "=> GetAsyncKeyState diverge : lecture interdite pour le toggle (d'où GetKeyState dans to_char)"
+            );
+        }
     }
 
     /// Diagnostic manuel du modèle d'état ToUnicodeEx : `cargo test --release
