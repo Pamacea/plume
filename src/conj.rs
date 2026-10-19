@@ -221,7 +221,7 @@ impl Conj {
         self.rule_a(prefix, readings, &base, person)
             .or_else(|| self.rule_b(prefix, readings, &base, person))
             .or_else(|| self.rule_c(prefix, readings, &base))
-            .map(|f| format!("{clitic}{f}"))
+            .and_then(|f| attache(clitic, &f))
     }
 
     /// Infinitif représenté par `mot` (« mange » → « manger »), ou `None` si le
@@ -269,7 +269,7 @@ impl Conj {
             return synonymes
                 .iter()
                 .filter(|s| s.as_str() != base)
-                .map(|s| format!("{clitic}{s}"))
+                .filter_map(|s| attache(clitic, s))
                 .collect();
         }
         let temps_cibles: Vec<u8> = readings
@@ -299,8 +299,9 @@ impl Conj {
             }
             if let Some(f) = form
                 && f != base
+                && let Some(a) = attache(clitic, f)
             {
-                out.push(format!("{clitic}{f}"));
+                out.push(a);
             }
         }
         out
@@ -464,6 +465,31 @@ fn split_clitic(mot: &str) -> (&str, &str) {
         }
     }
     ("", mot)
+}
+
+/// Ré-attache le clitic à la correction en respectant l'élision : « j'aime »
+/// devant une voyelle, mais « j'détiens » n'existe pas → « je détiens ».
+/// Devant consonne, clitic à sens ambigu (l' = le/la, t' = tu/te) → None
+/// (mieux vaut se taire qu'à côté).
+fn attache(clitic: &str, forme: &str) -> Option<String> {
+    if clitic.is_empty() {
+        return Some(forme.to_string());
+    }
+    let prem = forme.chars().next()?.to_lowercase().next()?;
+    let voyelle = "aeiouyhàâéèêëîïôöùûü".contains(prem);
+    if voyelle {
+        return Some(format!("{clitic}{forme}"));
+    }
+    let det = match clitic.trim_end_matches(['\'', '’']) {
+        "j" | "je" => "je",
+        "s" | "se" => "se",
+        "n" | "ne" => "ne",
+        "c" => "ce",
+        "d" => "de",
+        "qu" => "que",
+        _ => return None, // t', l', m'… : sens ambigu → silence
+    };
+    Some(format!("{det} {forme}"))
 }
 
 /// Personne portée par le clitic du mot lui-même (« j' » → 1s, « t' » → 2s ;
@@ -732,6 +758,36 @@ mod tests {
         assert!(
             c.variantes("je peux ", "regarder", &["regarder".to_string()])
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn attache_elision_ou_silence() {
+        // voyelle : l'élision est correcte, on garde le clitic
+        assert_eq!(attache("j'", "aime"), Some("j'aime".to_string()));
+        assert_eq!(attache("s'", "ouvre"), Some("s'ouvre".to_string()));
+        assert_eq!(attache("l'", "aime"), Some("l'aime".to_string()));
+        // consonne : « j'détiens » n'existe pas → dé-élision
+        assert_eq!(attache("j'", "détiens"), Some("je détiens".to_string()));
+        assert_eq!(
+            attache("s'", "déverrouille"),
+            Some("se déverrouille".to_string())
+        );
+        // consonne + clitic à sens ambigu (le/la, tu/te) → silence
+        assert_eq!(attache("l'", "détiens"), None);
+        assert_eq!(attache("t'", "détiens"), None);
+        // pas de clitic : inchangé
+        assert_eq!(attache("", "mange"), Some("mange".to_string()));
+    }
+
+    /// Bug rapporté : « j'ai » → « j'détiens, j'possède » — la dé-élision doit
+    /// se faire aussi via `variantes` (chemin synonymes conjugués).
+    #[test]
+    fn variantes_delie_le_clitic_devant_consonne() {
+        let c = c();
+        assert_eq!(
+            c.variantes("", "j'ai", &["manger".to_string()]),
+            vec!["je mange"]
         );
     }
 

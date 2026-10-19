@@ -1,7 +1,7 @@
 //! Hook clavier global (WH_KEYBOARD_LL) : reconstitue les caractères tapés
 //! via ToUnicodeEx et avale ↑↓/Entrée/Échap quand la bulle est ouverte.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
@@ -42,9 +42,16 @@ static TX: OnceLock<Sender<KeyMsg>> = OnceLock::new();
 /// l'app à chaque frappe utile (sinon elle attendrait le filet de 250 ms)
 static REPINT: OnceLock<egui::Context> = OnceLock::new();
 static POPUP_OPEN: AtomicBool = AtomicBool::new(false);
+/// hwnd de l'app devant laquelle la bulle s'est ouverte (0 = aucune) : dès que
+/// l'utilisateur passe à une autre app, la suggestion est périmée — sans ça,
+/// une bulle laissée ouverte + mode forcé = clavier bloqué PARTOUT
+static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
 static INJECT_TEST: AtomicBool = AtomicBool::new(false);
 /// pause globale : en true, hook_proc laisse passer toutes les frappes sans traiter
 static PAUSED: AtomicBool = AtomicBool::new(false);
+/// mode forcé (option tray, défaut off) : en true, l'écriture est bloquée
+/// tant que la bulle est ouverte ; sinon la frappe ferme la bulle et passe
+static FORCE: AtomicBool = AtomicBool::new(false);
 /// dernière touche morte vue (vk, scan) en attente de composition : l'état de
 /// ToUnicodeEx est PARTAGÉ avec l'app (constaté : son rendu suit nos appels) →
 /// on le réarme après chaque composition pour qu'elle compose aussi
@@ -57,6 +64,14 @@ const HOTKEY_PAUSE: i32 = 1;
 
 pub fn set_popup_open(v: bool) {
     POPUP_OPEN.store(v, Ordering::Relaxed);
+    // mémorise la fenêtre au moment de l'ouverture : la bulle n'est valable
+    // que devant cette app (voir hook_proc)
+    let hwnd = if v {
+        unsafe { GetForegroundWindow().0 as isize }
+    } else {
+        0
+    };
+    POPUP_HWND.store(hwnd, Ordering::Relaxed);
 }
 
 pub fn set_paused(v: bool) {
@@ -80,11 +95,27 @@ pub fn is_paused() -> bool {
     PAUSED.load(Ordering::Relaxed)
 }
 
+pub fn is_force() -> bool {
+    FORCE.load(Ordering::Relaxed)
+}
+
+pub fn set_force(v: bool) {
+    if v != is_force() {
+        crate::dlog::dlog(if v {
+            "MODE FORCÉ activé"
+        } else {
+            "MODE FORCÉ levé"
+        });
+    }
+    FORCE.store(v, Ordering::Relaxed);
+}
+
 /// Bascule la pause (hotkey Ctrl+Alt+P et menu tray) et referme la bulle ouverte :
 /// sans Invalidate, une bulle resterait affichée pendant que le hook ne la pilote plus.
 pub fn toggle_paused() -> bool {
     let v = !is_paused();
     set_paused(v);
+    crate::dlog::dlog(if v { "PAUSE activée" } else { "PAUSE levée" });
     if let Some(tx) = TX.get()
         && tx.send(KeyMsg::Invalidate).is_ok()
     {
@@ -150,12 +181,28 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         if ignore {
             crate::dlog::dlog(&format!("ignoré injected vk={:#x}", kb.vkCode));
         }
-        if !ignore
-            && let Some(msg) = classify(kb, wparam)
-            && !is_excluded()
-        {
+        if !ignore && let Some(msg) = classify(kb, wparam) {
+            if is_excluded() {
+                crate::dlog::dlog("exclu (app dans exclusions.txt) — frappe ignorée");
+                return CallNextHookEx(None, code, wparam, lparam);
+            }
             crate::dlog::dlog(&format!("hook vk={:#x} -> {msg:?}", kb.vkCode));
-            let (transmit, swallow) = flow(msg, POPUP_OPEN.load(Ordering::Relaxed));
+            // changement d'app devant la bulle : suggestion périmée → on la ferme
+            // (Invalidate) et la frappe repasse comme bulle fermée. Sans ça, en mode
+            // forcé, toutes les frappes seraient avalées PARTOUT jusqu'à Échap.
+            let mut open = POPUP_OPEN.load(Ordering::Relaxed);
+            if open
+                && POPUP_HWND.load(Ordering::Relaxed) != 0
+                && GetForegroundWindow().0 as isize != POPUP_HWND.load(Ordering::Relaxed)
+            {
+                crate::dlog::dlog("changement d'app — bulle invalidée");
+                open = false;
+                if let Some(tx) = TX.get() {
+                    let _ = tx.send(KeyMsg::Invalidate);
+                }
+                repint();
+            }
+            let (transmit, swallow) = flow(msg, open);
             if transmit
                 && let Some(tx) = TX.get()
                 && tx.send(msg).is_ok()
@@ -171,16 +218,30 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     }
 }
 
-/// (transmettre à plume, avaler la frappe) : tant que la bulle est ouverte,
-/// l'écriture est avalée ET non transmise — sinon `on_msg` la traiterait et
-/// refermerait la popup avant Entrée/Échap (« j'écris vite, ça coupe »).
+/// (transmettre à plume, avaler la frappe) : avec le mode forcé (option tray),
+/// l'écriture est avalée ET non transmise tant que la bulle est ouverte —
+/// sinon `on_msg` la traiterait et refermerait la popup avant Entrée/Échap.
+/// Par défaut (forcé off) la frappe passe et ferme la bulle.
 fn flow(msg: KeyMsg, popup_open: bool) -> (bool, bool) {
     let write = matches!(msg, KeyMsg::Char(_) | KeyMsg::Backspace);
     let nav = matches!(
         msg,
         KeyMsg::Up | KeyMsg::Down | KeyMsg::Return | KeyMsg::Escape
     );
-    (!popup_open || !write, popup_open && (write || nav))
+    if !popup_open {
+        return (true, false);
+    }
+    let force = FORCE.load(Ordering::Relaxed);
+    // navigation : toujours transmise à l'app (la bulle y réagit) et avalée
+    // (sinon la flèche bougerait aussi le curseur de l'application)
+    if nav {
+        return (true, true);
+    }
+    if write {
+        return if force { (false, true) } else { (true, false) };
+    }
+    // Invalidate/Other : transmis (ferme la bulle), non avalés
+    (true, false)
 }
 
 fn classify(kb: &KBDLLHOOKSTRUCT, wparam: WPARAM) -> Option<KeyMsg> {
@@ -379,13 +440,18 @@ mod tests {
     }
 
     #[test]
-    fn bulle_ouverte_avale_ecriture() {
-        use super::KeyMsg;
-        use super::flow;
-        // écriture pendant la bulle : avalée et non transmise (la frappe
-        // disparaît, la bulle dure jusqu'à Entrée/Échap)
+    fn bulle_ouverte_flow_selon_mode_force() {
+        use super::{KeyMsg, flow, set_force};
+        // défaut (mode forcé off) : l'écriture passe et ferme la bulle
+        set_force(false);
+        assert_eq!(flow(KeyMsg::Char('a'), true), (true, false));
+        assert_eq!(flow(KeyMsg::Backspace, true), (true, false));
+        // mode forcé : écriture avalée ET non transmise (bulle tenue jusqu'à
+        // Entrée/Échap)
+        set_force(true);
         assert_eq!(flow(KeyMsg::Char('a'), true), (false, true));
         assert_eq!(flow(KeyMsg::Backspace, true), (false, true));
+        set_force(false); // remise à zéro pour les autres tests
         // navigation : avalée mais transmise — la bulle doit y réagir
         assert_eq!(flow(KeyMsg::Up, true), (true, true));
         assert_eq!(flow(KeyMsg::Return, true), (true, true));

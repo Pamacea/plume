@@ -22,6 +22,7 @@ struct State {
     // doit rester vivante : la destruction de l'icône retire le tray
     _tray: TrayIcon,
     pause: CheckMenuItem,
+    force: CheckMenuItem,
     autostart: CheckMenuItem,
 }
 
@@ -35,10 +36,12 @@ static SHOWN_PAUSED: AtomicBool = AtomicBool::new(false);
 
 pub fn init() {
     let pause = CheckMenuItem::new("Pause", true, hook::is_paused(), None);
+    let force = CheckMenuItem::new("Mode forcé", true, hook::is_force(), None);
     let autostart = CheckMenuItem::new("Démarrage auto", true, autostart_enabled(), None);
     let quit = MenuItem::new("Quitter", true, None);
     let menu = Menu::new();
     let _ = menu.append(&pause);
+    let _ = menu.append(&force);
     let _ = menu.append(&autostart);
     let _ = menu.append(&quit);
     // icône embarquée dans l'exé par build.rs (winresource, ressource ID 1),
@@ -70,6 +73,7 @@ pub fn init() {
         *s.borrow_mut() = Some(State {
             _tray: tray,
             pause,
+            force,
             autostart,
         });
     });
@@ -96,6 +100,10 @@ pub fn poll() {
                     // muda a déjà basculé la coche avant d'émettre l'événement
                     hook::toggle_paused();
                     s.pause.set_checked(hook::is_paused());
+                }
+                "force" => {
+                    // muda a déjà basculé la coche avant d'émettre l'événement
+                    hook::set_force(s.force.is_checked());
                 }
                 "autostart" => {
                     // muda a déjà basculé la coche avant d'émettre l'événement

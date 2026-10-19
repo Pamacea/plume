@@ -15,9 +15,9 @@ curseur, dans une bulle élégante :
 | `je la regarde ` | verbes **synonymes conjugués** : « je l'observe… » (1 100 verbes) |
 | `grace ` | suggestions accentuées : « grâce » |
 
-↑↓ pour naviguer, **Entrée** pour insérer, **Échap** pour ignorer. Tant que la
-bulle est ouverte, écrire est bloqué : la suggestion tient jusqu'à validation
-ou annulation.
+↑↓ pour naviguer, **Entrée** pour insérer, **Échap** pour ignorer. Par défaut,
+écrire ferme la bulle et continue la phrase ; cochez **Mode forcé** (menu tray)
+pour verrouiller la bulle jusqu'à validation ou annulation.
 
 ## Télécharger
 
