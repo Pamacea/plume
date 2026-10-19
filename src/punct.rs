@@ -28,24 +28,83 @@ pub fn corrections(c: char, buffer: &str) -> Vec<Fix> {
     if c == ' ' && last == Some(' ') {
         return vec![Fix::CancelLast];
     }
-    // 3) espace insécable avant ; : ! ? » après un mot/digit
+    // 3) espace insécable avant ; : ! ? » › après un mot/digit
     // (`.` et `,` exclus : jamais d'espace avant)
-    if matches!(c, ';' | ':' | '!' | '?' | '»') && last.is_some_and(char::is_alphanumeric) {
+    if matches!(c, ';' | ':' | '!' | '?' | '»' | '›') && last.is_some_and(char::is_alphanumeric)
+    {
         return vec![Fix::Rewrite {
             backspaces: 1,
             insert: format!("\u{00A0}{c}"),
         }];
     }
-    // 4) espace insécable après « avant une lettre
+    // 4) espace insécable après « ‹ avant une lettre
     // shortcut: `(` ignoré — pas d'espace avant le contenu d'une parenthèse en français,
     // upgrade: règle dédiée si un jour demandé
-    if c.is_alphabetic() && last == Some('«') {
+    if c.is_alphabetic() && matches!(last, Some('«' | '‹')) {
         return vec![Fix::Rewrite {
             backspaces: 1,
             insert: format!("\u{00A0}{c}"),
         }];
     }
-    // shortcut: `...` → `…` hors scope (typo pure, aucune interaction avec les tics)
+    // 5) guillemet droit → français : ouvrant après début/espace (la nbsp viendra
+    // de la règle 4 au mot suivant), fermant sinon (nbsp comme la règle 3)
+    // shortcut: `"` après `(` ou `—` lu comme fermant, cas rare
+    if c == '"' {
+        return vec![Fix::Rewrite {
+            backspaces: 1,
+            insert: match last {
+                None | Some(' ') | Some('\u{00A0}') => "«".to_string(),
+                Some(c)
+                    if c.is_alphanumeric()
+                        || matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '…') =>
+                {
+                    "\u{00A0}»".to_string()
+                }
+                _ => "»".to_string(),
+            },
+        }];
+    }
+    // 6) guillemets depuis l'ASCII : le caractère fraîchement frappé est déjà
+    // dans l'app → les backspaces le comptent. `<<`/`>>` resserrent la paire
+    // (la nbsp éventuellement posée devant ‹/› est conservée : elle précède
+    // le guillemet remplacé, pas le caractère tapé)
+    if c == '<' {
+        return vec![Fix::Rewrite {
+            backspaces: if last == Some('‹') { 2 } else { 1 },
+            insert: if last == Some('‹') { "«" } else { "‹" }.to_string(),
+        }];
+    }
+    if c == '>' {
+        return vec![Fix::Rewrite {
+            backspaces: if last == Some('›') { 2 } else { 1 },
+            insert: if last == Some('›') {
+                "»".to_string()
+            } else if last.is_some_and(char::is_alphanumeric) {
+                "\u{00A0}›".to_string()
+            } else {
+                "›".to_string()
+            },
+        }];
+    }
+    // 7) tirets : `--` → cadratin court, `–-`/`—-` → cadratin long (le tiret
+    // simple reste un trait d'union). `.` : `...` → ellipsis, `….` se resserre
+    if c == '-' {
+        let insert = if last == Some('-') { "–" } else { "—" };
+        return if matches!(last, Some('-' | '–' | '—')) {
+            vec![Fix::Rewrite {
+                backspaces: 2,
+                insert: insert.to_string(),
+            }]
+        } else {
+            vec![]
+        };
+    }
+    if c == '.' && (buffer.ends_with("..") || last == Some('…')) {
+        return vec![Fix::Rewrite {
+            backspaces: if buffer.ends_with("..") { 3 } else { 2 },
+            insert: '…'.to_string(),
+        }];
+    }
     vec![]
 }
 
@@ -117,6 +176,140 @@ mod tests {
         assert!(corrections('x', "mot").is_empty());
         // autres ponctuations hors liste
         assert!(corrections('(', "mot").is_empty());
-        assert!(corrections('"', "mot").is_empty());
+    }
+
+    #[test]
+    fn guillemet_droit_devient_français() {
+        // ouvrant : début de buffer ou après espace
+        for buf in ["", "il a dit "] {
+            assert_eq!(
+                corrections('"', buf),
+                vec![Fix::Rewrite {
+                    backspaces: 1,
+                    insert: '«'.to_string()
+                }]
+            );
+        }
+        // fermant après mot : espace insécable + »
+        assert_eq!(
+            corrections('"', "bonjour"),
+            vec![Fix::Rewrite {
+                backspaces: 1,
+                insert: "\u{00A0}»".to_string()
+            }]
+        );
+        // fermant après ponctuation (« Bonjour ! »)
+        assert_eq!(
+            corrections('"', "dit !"),
+            vec![Fix::Rewrite {
+                backspaces: 1,
+                insert: "\u{00A0}»".to_string()
+            }]
+        );
+        // déjà fermé par une parenthèse : » nu (le contexte entoure déjà)
+        assert_eq!(
+            corrections('"', "bonjour)"),
+            vec![Fix::Rewrite {
+                backspaces: 1,
+                insert: '»'.to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn guillemets_depuis_ascii() {
+        // < → ‹, << → « (2 backspaces : le 2e < fraîchement frappé + le ‹)
+        assert_eq!(
+            corrections('<', "mot"),
+            vec![Fix::Rewrite {
+                backspaces: 1,
+                insert: '‹'.to_string()
+            }]
+        );
+        assert_eq!(
+            corrections('<', "‹"),
+            vec![Fix::Rewrite {
+                backspaces: 2,
+                insert: '«'.to_string()
+            }]
+        );
+        // > après mot → espace insécable + › ; sans mot → › nu
+        assert_eq!(
+            corrections('>', "mot"),
+            vec![Fix::Rewrite {
+                backspaces: 1,
+                insert: "\u{00A0}›".to_string()
+            }]
+        );
+        assert_eq!(
+            corrections('>', ""),
+            vec![Fix::Rewrite {
+                backspaces: 1,
+                insert: '›'.to_string()
+            }]
+        );
+        // >> → » : la nbsp posée devant ‹/› est conservée (2e cas ci-dessus)
+        assert_eq!(
+            corrections('>', "mot\u{00A0}›"),
+            vec![Fix::Rewrite {
+                backspaces: 2,
+                insert: '»'.to_string()
+            }]
+        );
+        // règles 3/4 étendues aux guillemets simples tapés directement
+        assert_eq!(
+            corrections('›', "mot"),
+            vec![Fix::Rewrite {
+                backspaces: 1,
+                insert: "\u{00A0}›".to_string()
+            }]
+        );
+        assert_eq!(
+            corrections('x', "‹"),
+            vec![Fix::Rewrite {
+                backspaces: 1,
+                insert: "\u{00A0}x".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn tirets_et_ellipsis() {
+        // -- → cadratin court, –- → cadratin long
+        assert_eq!(
+            corrections('-', "-"),
+            vec![Fix::Rewrite {
+                backspaces: 2,
+                insert: '–'.to_string()
+            }]
+        );
+        assert_eq!(
+            corrections('-', "–"),
+            vec![Fix::Rewrite {
+                backspaces: 2,
+                insert: '—'.to_string()
+            }]
+        );
+        // trait d'union simple : intact
+        assert!(corrections('-', "porte").is_empty());
+        assert!(corrections('-', "").is_empty());
+        // ... → ellipsis ; … se resserre quand un 4e point arrive
+        assert_eq!(
+            corrections('.', ".."),
+            vec![Fix::Rewrite {
+                backspaces: 3,
+                insert: '…'.to_string()
+            }]
+        );
+        assert_eq!(
+            corrections('.', "…"),
+            vec![Fix::Rewrite {
+                backspaces: 2,
+                insert: '…'.to_string()
+            }]
+        );
+        // points isolés : fin de phrase normale, inchangé
+        assert!(corrections('.', "mot.").is_empty());
+        assert!(corrections('.', ".").is_empty());
     }
 }

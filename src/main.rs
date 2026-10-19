@@ -7,6 +7,7 @@ mod punct;
 mod shortcut;
 mod spell;
 mod tray;
+mod update;
 
 use std::sync::Arc;
 use std::sync::mpsc;

@@ -502,14 +502,13 @@ mod tests {
                 let mut state = [0u8; 256];
                 state[0x45] = 0x80;
                 let mut buf = [0u16; 4];
-                unsafe {
-                    let hkl = windows::Win32::UI::Input::KeyboardAndMouse::HKL(hkl_usize as _);
-                    let n = ToUnicodeEx(0x45, 0, &state, &mut buf, 0, Some(hkl));
-                    if n > 0 {
-                        String::from_utf16_lossy(&buf[..n as usize])
-                    } else {
-                        format!("n={n}")
-                    }
+                // unsafe couvert par le bloc englobant du test (unused_unsafe)
+                let hkl = windows::Win32::UI::Input::KeyboardAndMouse::HKL(hkl_usize as _);
+                let n = ToUnicodeEx(0x45, 0, &state, &mut buf, 0, Some(hkl));
+                if n > 0 {
+                    String::from_utf16_lossy(&buf[..n as usize])
+                } else {
+                    format!("n={n}")
                 }
             })
             .join()

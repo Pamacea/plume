@@ -36,7 +36,7 @@ permet de|Offre la possibilité de|Autorise|Ouvre la voie à|Met à même de|Fac
 afin de|Pour|De façon à|Dans le but de|En vue de|Par souci de|Dans l'intention de
 grâce à|Via|Moyennant|Par l'intermédiaire de|Au moyen de|Par le truchement de|En raison de
 d'un certain point de vue|Sous cet angle|De ce point de vue|Vu sous cet angle|À cet égard|Sous cet aspect|Sous cet éclairage
-à mon avis|Je considère|Pour ma part|Selon moi|À mes yeux|D'après moi|À mon sens
+à mon avis|Je considère|Pour ma part|Selon moi|À mes yeux|D'après moi|À mon sens|selon ma perspective|d'après ma perception|suivant ma vision des choses
 quelque part|D'une certaine manière|À certains égards|En un sens|En quelque mesure|En une certaine mesure|À sa manière
 intéressant|Pertinent|Éclairant|Stimulant|Attachant|Fécond|Séduisant
 important|Essentiel|Capital|Déterminant|Majeur|Crucial|Significatif
@@ -55,10 +55,10 @@ crucial|Essentiel|Vital|Déterminant|Capital|Majeur|Primordial
 chose|Élément|Notion|Détail|Affaire|Question|Matière
 truc|Élément|Affaire|Détail|Notion|Objet|Matière
 genre|Notamment|Comme|Entre autres|Tel que|À l'image de|Semblable à
-en réalité|De fait|En vérité|Concrètement|En fait|À la vérité|Dans les faits
+en réalité|De fait|En vérité|Concrètement|En fait|À la vérité|Dans les faits|à dire vrai|la réalité de la situation est que
 # — Extension globale —
 en gros|Dans l'ensemble|Grosso modo|Pour l'essentiel|En substance|De façon schématique|Sommairement
-bref|Somme toute|En résumé|Pour couper court|En un mot|Pour aller à l'essentiel|Pour faire court
+bref|Somme toute|En résumé|Pour couper court|En un mot|Pour aller à l'essentiel|Pour faire court|sans plus de détours|pour trancher net
 du genre|Tel que|Notamment|À l'instar de|À la manière de|Sur le modèle de|Comme
 du style|Du calibre de|De ce type|À l'image de|À la manière de|Sur le modèle de|Du même acabit
 en même temps|Par ailleurs|Concurremment|Tout en|Simultanément|À la fois|De concert
@@ -72,13 +72,13 @@ par rapport à|Au regard de|Comparativement à|Face à|À l'égard de|Vis-à-vis
 au niveau visuel|Sur le plan visuel|Du point de vue esthétique|En apparence|Sous l'angle visuel|Pour ce qui est de l'image|Du point de vue des apparences
 au niveau financier|Sur le plan financier|Du point de vue économique|En matière financière|Sous l'angle financier|Pour ce qui est de l'argent|Sous l'aspect économique
 dans la foulée|Immédiatement après|Tout juste après|À la suite immédiate|Aussitôt après|Dans les instants qui suivent|Sur-le-champ
-tout de suite|Sans délai|Sans attendre|À l'instant|Immédiatement|Aussitôt|Sans plus attendre
+tout de suite|Sans délai|Sans attendre|À l'instant|Immédiatement|Aussitôt|Sans plus attendre|sur-le-champ|dans les plus brefs délais|séance tenante|incontinent|dans l'instant même
 de nos jours|À l'heure actuelle|À notre époque|À présent|Aujourd'hui|En ce temps-ci|À l'ère actuelle
 à un moment donné|À un certain moment|Un jour ou l'autre|À telle ou telle occasion|À un instant quelconque|À un temps donné|En cours de route
 au bout du compte|En définitive|En dernière analyse|Somme toute|Pour finir|À la longue|Une fois tout pesé
 en gros modo|Dans les grandes lignes|Pour l'essentiel|De manière schématique|Grosso modo|Sommairement|En substance
 ceci étant dit|Cela posé|Cela admis|Une fois ceci établi|Cela établi|Ceci reconnu|Cela rappelé
-d'un autre côté|De l'autre côté|À l'inverse|Pour autant|En revanche|À l'opposé|Inversement
+d'un autre côté|De l'autre côté|À l'inverse|Pour autant|En revanche|À l'opposé|Inversement|par ailleurs|en contrepartie|sous un autre angle|revers de la médaille
 à première vue|En apparence|De prime abord|Au premier abord|Au premier coup d'œil|À la première occurrence|Superficiellement
 dans un premier temps|En première intention|À titre initial|Pour commencer|Au stade initial|Pour l'heure|En ouverture
 dans un second temps|En second lieu|À un stade ultérieur|Par la suite|Ensuite|À l'étape suivante|Ultérieurement
@@ -121,9 +121,9 @@ sincèrement|En toute sincérité|À cœur ouvert|Sans faux-fuyant|En toute fran
 à mon sens|Selon ma conviction|Pour ma part|À mes yeux|À mon point de vue|De mon point de vue|Selon mon appréciation
 personnellement|Pour ma part|De mon côté|En ce qui me concerne|Pour ce qui me regarde|À titre personnel|Au plan personnel
 selon moi|À mon sens|Pour ma part|Suivant ma conviction|D'après moi|À mes yeux|Je considère
-je pense que|J'estime que|Il me paraît que|Je suis d'avis que|Je crois que|Mon avis est que|Il me semble que
+je pense que|J'estime que|Il me paraît que|Je suis d'avis que|Je crois que|Mon avis est que|Il me semble que|je juge que|il m'apparaît que|je demeure convaincu que|j'incline à penser que|mon intime conviction est que
 je trouve que|Je tiens que|Il m'apparaît que|À mon sens|Je juge que|Mon sentiment est que|Je vois que
-je crois que|Je suis porté à croire que|Il m'est avis que|J'ai pour opinion que|Je pense que|Il me semble que|Mon sentiment est que
+je crois que|Je suis porté à croire que|Il m'est avis que|J'ai pour opinion que|Je pense que|Il me semble que|Mon sentiment est que|j'ai foi en le fait que|je conjecture que|je présume que|j'accorde du crédit à l'idée que
 j'ai l'impression que|Il me semble que|J'ai le sentiment que|Tout porte à croire que|J'ai la conviction que|Tout indique que|On dirait que
 si tu veux mon avis|Si vous me le permettez|Permettez-moi de dire|À titre personnel|Si vous voulez bien|Avec votre permission|À mon humble avis
 pour être tout à fait franc|Pour être sans réserve|En toute transparence|Pour tout dire|Pour être parfaitement clair|À cœur ouvert|Pour être précis
@@ -186,10 +186,10 @@ juste|Équitable|Exact|Approprié|Convenable|Adéquat|Séant
 égal|Identique|Équivalent|Uniforme|Semblable|Homogène|Pareil
 différent|Dissemblable|Distinct|Hétérogène|Divers|Séparé|Disparate
 rapidement|Promptement|À grand train|Sans délai|À vive allure|Aussitôt|Dans les meilleurs délais
-bientôt|Sous peu|À brève échéance|Prochainement|Dans un instant|À court terme|Dans peu
+bientôt|Sous peu|À brève échéance|Prochainement|Dans un instant|À court terme|Dans peu|d'ici peu|incessamment sous peu|dans un avenir proche
 toujours|En tout temps|Perpétuellement|À jamais|En permanence|Sans interruption|Continûment
 jamais|À aucun moment|Nullement|En aucun cas|À aucun instant|À aucun égard|À nul moment
-souvent|Fréquemment|Régulièrement|Maintes fois|À maintes reprises|De manière répétée|À intervalles rapprochés
+souvent|Fréquemment|Régulièrement|Maintes fois|À maintes reprises|De manière répétée|À intervalles rapprochés|de manière récurrente
 parfois|De temps à autre|À l'occasion|En certaines occurrences|Ça et là|À des intervalles|En des cas isolés
 déjà|D'ores et déjà|Jusqu'ici|Préalablement|Auparavant|Précédemment|À l'avance
 soudain|Brusquement|Inopinément|À l'improviste|Tout à coup|Subitement|Sans prévenir
@@ -199,7 +199,7 @@ en ce moment|À l'heure actuelle|Actuellement|En cette période|En ce temps-ci|P
 désormais|Dorénavant|Dès à présent|Pour l'avenir|À partir de maintenant|Dès lors|À compter de ce jour
 régulièrement|De façon continue|Périodiquement|À intervalles réguliers|Sans cesse|Continûment|À intervalles constants
 immédiatement|Sans délai|Sur-le-champ|À l'instant|Aussitôt|Dans l'immédiat|Sans plus tarder
-rarement|Peu souvent|À de rares occasions|Fort peu|Exceptionnellement|À peine|De loin en loin
+rarement|Peu souvent|À de rares occasions|Fort peu|Exceptionnellement|À peine|De loin en loin|il est peu fréquent que|de façon épisodique
 toujours autant|Plus que jamais|Tout autant|Avec constance|Non moins|Sans relâche|Avec la même constance
 à l'époque|Autrefois|En ce temps-là|Jadis|En son temps|À cette époque|Naguère
 au début|Dès l'origine|En ouverture|Au premier stade|À l'origine|Initialement|Aux premiers pas
@@ -238,7 +238,7 @@ pratique|Opportun|Fonctionnel|Commode|Usuel|Facile|Bien agencé
 utile|Profitable|Salutaire|Pertinent|Pratique|Opportun|Propice
 inutile|Superflu|Vain|Inopérant|Inefficace|Désuet|Stérile
 nécessaire|Indispensable|Impératif|Requis|Obligatoire|Vital|Pressant
-à cause de|En raison de|Par suite de|Du fait de|Par l'effet de|Compte tenu de|Par le fait de
+à cause de|En raison de|Par suite de|Du fait de|Par l'effet de|Compte tenu de|Par le fait de|par le fait même de|sous le coup de|consécutivement à|en suite de
 malgré|Nonobstant|En dépit de|Quoique|Sans tenir compte de|À l'encontre de|Contrairement à
 à travers|Par le biais de|Au travers de|Par l'intermédiaire de|Au moyen de|Moyennant|Sous couvert de
 vis-à-vis|À l'égard de|Concernant|Quant à|Envers|Touchant|Face à
@@ -252,7 +252,88 @@ autrement dit|En d'autres termes|Pour le dire autrement|Autrement|En clair|Pour 
 c'est-à-dire|À savoir|Soit|En d'autres termes|Autrement dit|À d'autres mots|Pour préciser
 en clair|Sans détour|De façon explicite|Nettement|En termes clairs|Sans fard|Précisément
 en somme|Somme toute|En définitive|Pour l'essentiel|En bref|En raccourci|Bref
-en résumé|En synthèse|Pour résumer|Somme toute|En bref|En raccourci|Pour finir
-pour conclure|Pour achever|En dernier lieu|Au terme|Pour finir|En guise de clôture|En ultime analyse
+en résumé|En synthèse|Pour résumer|Somme toute|En bref|En raccourci|Pour finir|en somme|pour synthétiser|au final|pour le dire en peu de mots
+pour conclure|Pour achever|En dernier lieu|Au terme|Pour finir|En guise de clôture|En ultime analyse|pour clore le sujet|en guise de conclusion|pour mettre un terme à cet exposé
 pour terminer|Pour achever|Pour clore|Au terme|Pour finir|Pour conclure|En dernier ressort
 et ainsi de suite|Et le reste|Sans plus|Entre autres|De la même façon|Toujours ainsi|Et cætera
+
+# — Bouts de phrases — reformulation : déclencheur = phrase complète (suivie
+# d'un délimiteur), chaque alternative est suivie du reste de la phrase tapée.
+je dois aller|je me rends|je file|je m'en vais|je pars|je compte me rendre|je tâcherai de me rendre|je m'achemine vers|je fais route vers|je prends la direction de
+je vais aller|je me rendrai|je compte me rendre|je ne manquerai pas de me rendre|j'aurai à me rendre|je me transporterai à|il m'incombera d'aller
+il faut que je|je dois|je vais devoir|il me faut|je tiens à|je m'apprête à|je compte|il m'appartient de|il m'est imposé de|il convient que je
+je sais bien que|il est vrai que|à vrai dire|nul n'ignore que|on ne peut nier que|j'ai conscience que|il est avéré que|force est d'admettre que
+je voudrais savoir si|je souhaiterais savoir si|permettez-moi de savoir si|je me demande si|auriez-vous l'amabilité de me dire si|serait-il possible de savoir si|auriez-vous la complaisance de m'indiquer si|puis-je solliciter l'information selon laquelle
+il me semble que|j'ai l'impression que|il paraît que|on dirait que|tout porte à croire que|il semblerait que|selon toute vraisemblance|je ne saurais ôter de mon esprit que
+ça dépend de|cela dépend de|tout dépend de|cela tient à|cela repose sur|tout repose sur|cela s'articule autour de|cela demeure tributaire de|cela reste assujetti à
+pour le moment|actuellement|en l'état|à ce stade|dans l'immédiat|en attendant|jusqu'à plus ample informé|provisoirement|en la circonstance
+on peut dire que|disons que|on observera que|il est permis de dire que|force est de constater que|l'on peut affirmer que|il tombe sous le sens que
+je veux|je souhaite|j'ambitionne de|je désire|j'aspire à|il me tient à cœur de|je formerais le vœu de|j'ai la ferme intention de
+pouvez-vous me dire|auriez-vous l'obligeance de m'éclairer sur|seriez-vous en mesure de m'indiquer|m'expliquerez-vous|veuillez me faire savoir|auriez-vous l'amabilité de m'instruire sur
+j'aimerais comprendre|il me plairait de saisir|je sollicite des éclaircissements sur|je cherche à me figurer|j'ambitionne de cerner|il me tarde de saisir la portée de
+c'est parce que|cela s'explique par|ceci découle de|cela procède de|cela trouve son origine dans|ceci prend sa source dans|cela dérive de
+si jamais|dans l'hypothèse où|au cas où|pour autant que|pour peu que|advenant le cas où|si tant est que
+depuis longtemps|depuis belle lurette|depuis un temps immémorial|de longue date|voici fort longtemps|maintes années durant
+je suis d'accord|j'en conviens|je souscris à cette idée|j'abonde dans votre sens|je me range à votre avis|j'acquiesce|j'y adhère sans réserve
+c'est sûr|il est indubitable que|il ne fait aucun doute que|il est incontestable que|c'est chose certaine|il est hors de doute que
+c'est vrai|cela correspond à la réalité|ce fait est irréfutable|rien n'est plus exact|cela relève d'une vérité incontestable
+c'est difficile|cela s'avère ardu|la tâche est délicate|cela ne va pas sans peine|cela présente une complexité certaine|cela requiert un effort colossal
+mais|néanmoins|toutefois|cependant|en revanche|nonobstant cela|il n'en demeure pas moins que|ce nonobstant
+ce n'est pas grave|cela est négligeable|il n'y a lieu de s'en inquiéter|cela importe peu|l'incident est minime|cela revêt un caractère insignifiant
+je refuse|je décline|je m'y oppose|je ne saurais accepter|il ne saurait en être question|je m'inscris en faux contre cette idée
+je ne peux pas|il m'est impossible de|je me trouve dans l'incapacité de|je suis au regret de ne pouvoir|mes facultés me refusent la possibilité de
+j'ai compris|j'ai bien pris note|j'ai saisi la mesure|cela m'est parfaitement intelligible|j'ai pris bonne note de vos propos
+j'ai oublié|cela m'a échappé|j'ai perdu le souvenir de|ce fait est sorti de ma mémoire|j'en ai perdu la récurrence
+je m'en fiche|cela m'est indifférent|peu m'importe|cela n'a guère d'importance à mes yeux|je n'y attache nulle importance
+c'est important|cela revêt une importance capitale|cela s'avère primordial|ce fait est d'une portée majeure|cela est d'un intérêt crucial
+c'est bizarre|cela est singulier|voilà qui est fort étonnant|cela présente un caractère insolite|c'est pour le moins déconcertant
+c'est possible|il n'est pas exclu que|cela relève du domaine du possible|on ne saurait l'exclure|cela demeure envisageable
+c'est faux|cela est inexact|ce propos est dénué de fondement|cela relève de la chimère|c'est une contre-vérité flagrante
+j'espère que|je formule le vœu que|j'ose espérer que|je nourris l'espoir que|il est à souhaiter que
+je suis désolé|je vous prie de m'excuser|je sollicite votre indulgence|veuillez agréer mes sincères regrets|je compatis profondément
+merci|je vous exprime ma gratitude|je vous suis fort gré|je vous adresse mes plus vifs remerciements|soyez assuré de toute ma reconnaissance
+de rien|il n'y a pas de quoi|je vous en prie|c'est bien naturel|cela ne mérite guère de remerciements
+au revoir|je vous salue|au plaisir de vous revoir|je me retire|je prends congé de vous
+bonjour|je vous adresse mes salutations|je vous souhaite un bien bon jour|mes hommages
+s'il vous plaît|si cela ne vous dérange pas|si votre bonté le permet|si vous avez la gentillesse de|si tant est que cela ne vous rebute point
+c'est dommage|il est regrettable que|c'est fort fâcheux|on ne peut que déplorer|c'est bien pénalisant
+c'est bien|cela est fort estimable|voilà qui est fort satisfaisant|cela suscite mon approbation|c'est un point tout à fait louable
+c'est mauvais|cela laisse à désirer|ce fait est fort insatisfaisant|voilà qui s'avère fort médiocre|cela manque singulièrement de qualité
+je travaille sur|je m'attelle à|je m'emploie à|je consacre mes efforts à|je me consacre entièrement à
+j'aide|j'apporte mon concours|je prête main-forte|je viens en aide à|j'offre mon assistance
+j'explique|je mets en lumière|j'explicite|j'expose clairement|je m'emploie à faire comprendre
+je cherche|je suis en quête de|je m'efforce de dénicher|je poursuis des recherches sur|j'investigue
+je commence|j'initie|j'entame|je procède au lancement de|je donne le coup d'envoi de
+je finis|j'achève|je mène à terme|je parachève|j'appose le point final à
+j'essaie de|je tente de|je m'efforce de|j'entreprends de|je mettrai tout en œuvre pour
+je change|je modifie|j'altère|j'apporte des ajustements à|je procède à la refonte de
+je montre|j'exhibe|je mets en évidence|je fais étalage de|je rends manifeste
+j'arrête de|je cesse de|je mets fin à|j'interromps|j'abandonne définitivement
+je garde|je conserve|je préserve|je maintiens en l'état|je prends soin de ne pas me séparer de
+j'achète|je fais l'acquisition de|je me procure|je fais de l'emplette de|je me rends acquéreur de
+je vends|je cède|je procède à la vente de|je mets sur le marché|je me sépare au profit d'un tiers de
+je paie|je règle la somme|je m'acquitte de|j'honore la facture|je procède au versement
+je donne|j'octroie|j'accorde|je fais don de|je gratifie de
+je reçois|je perçois|je rentre en possession de|je me vois gratifié de|je recueille
+je choisis|j'opte pour|je fixe mon choix sur|je donne la préférence à|je désigne
+j'hésite|je balance entre|je suis perplexe quant à|je demeure dans l'indécision|je tergiverse
+je me rappelle|il m'en souvient|mon esprit se remémore|j'ai le souvenir bien présent de|je me remémore
+je doute que|il me paraît douteux que|j'émets des réserves quant au fait que|je remets en question le fait que|je suis sceptique quant à
+je suis sûr que|j'ai la certitude que|il est garanti que|je me porte garant du fait que|je puis vous assurer que
+j'ai peur que|je redoute que|j'appréhende que|il est à craindre que|je suis en proie à l'inquiétude que
+je suis surpris|je suis mû par l'étonnement|je reste stupéfait|cela me laisse sans voix|je suis interloqué par
+c'est nouveau|cela revêt un caractère inédit|voilà qui est d'une grande nouveauté|cela est sans précédent|c'est récent
+c'est vieux|cela date d'une époque révolue|ce fait est vétuste|cela remonte à un autre âge|c'est ancestral
+c'est facile|cela s'accomplit sans peine|la tâche est aisée|cela ne présente aucune difficulté|c'est d'une simplicité enfantine
+c'est gratuit|cela est gracieux|il n'y a aucun coût à prévoir|ceci vous est offert sans contrepartie|cela est dispensé à titre gracieux
+ça me paraît cher|cela me semble dispendieux|le prix en est onéreux|voilà une dépense exorbitante|le coût s'avère exorbitant
+c'est rapide|cela s'exécute avec vélocité|c'est leste|cela s'accomplit en un tour de main|la célérité en est remarquable
+c'est lent|cela manque de promptitude|l'exécution en est tardive|cela traîne en longueur|c'est d'une lenteur excessive
+il y a beaucoup de|il foisonne de|on dénombre une pléthore de|cela regorge de|il y a surabondance de
+il y a peu de|cela manque cruellement de|on ne compte qu'une poignée de|cela est fort dépourvu de|la rareté en est patente
+partout|en tout lieu|aux quatre coins de|en chaque endroit|ubiquitairement
+nulle part|en aucun lieu|en aucun endroit|dans aucun coin de ce monde|en nulle contrée
+surtout|particulièrement|notamment|au premier chef|au plus haut point
+en général|de manière générale|globalement|dans la majorité des cas|pour l'essentiel
+il faut souligner que|il convient de mettre en exergue|il importe de faire remarquer que|il y a lieu d'insister sur le fait que|il est à noter tout particulièrement que
+au contraire|bien au contraire|à l'opposé|à l'inverse|à l'antipode de cela

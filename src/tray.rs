@@ -1,4 +1,4 @@
-//! Icône de notification : pause, démarrage auto, quitter.
+//! Icône de notification : pause, démarrage auto, mise à jour, quitter.
 //!
 //! Créée sur le thread principal AVANT `eframe::run_native` : tray-icon repose sur
 //! la boucle de messages Windows, que seule winit (thread principal) vide.
@@ -35,14 +35,24 @@ thread_local! {
 static SHOWN_PAUSED: AtomicBool = AtomicBool::new(false);
 
 pub fn init() {
-    let pause = CheckMenuItem::new("Pause", true, hook::is_paused(), None);
-    let force = CheckMenuItem::new("Mode forcé", true, hook::is_force(), None);
-    let autostart = CheckMenuItem::new("Démarrage auto", true, autostart_enabled(), None);
-    let quit = MenuItem::new("Quitter", true, None);
+    // ids explicites : sans eux muda génère des ids numériques ("1","2"…) et
+    // les matchs de `poll` ne répondent jamais
+    let pause = CheckMenuItem::with_id("pause", "Pause", true, hook::is_paused(), None);
+    let force = CheckMenuItem::with_id("force", "Mode forcé", true, hook::is_force(), None);
+    let autostart = CheckMenuItem::with_id(
+        "autostart",
+        "Démarrage auto",
+        true,
+        autostart_enabled(),
+        None,
+    );
+    let update = MenuItem::with_id("update", "Mettre à jour", true, None);
+    let quit = MenuItem::with_id("quit", "Quitter", true, None);
     let menu = Menu::new();
     let _ = menu.append(&pause);
     let _ = menu.append(&force);
     let _ = menu.append(&autostart);
+    let _ = menu.append(&update);
     let _ = menu.append(&quit);
     // icône embarquée dans l'exé par build.rs (winresource, ressource ID 1),
     // repli sur l'icône système si absente. CopyIcon car tray-icon détruit le
@@ -112,6 +122,7 @@ pub fn poll() {
                         s.autostart.set_checked(!s.autostart.is_checked());
                     }
                 }
+                "update" => crate::update::launch(),
                 "quit" => std::process::exit(0),
                 _ => {}
             }
