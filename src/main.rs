@@ -1,3 +1,6 @@
+// app tray sans UI : aucune console en release (la fermer tuerait l'exé) ;
+// en debug la console reste pour `cargo run` et les println des tests
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
 mod config;
 mod conj;
