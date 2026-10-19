@@ -187,7 +187,8 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 crate::dlog::dlog("exclu (app dans exclusions.txt) — frappe ignorée");
                 return CallNextHookEx(None, code, wparam, lparam);
             }
-            crate::dlog::dlog(&format!("hook vk={:#x} -> {msg:?}", kb.vkCode));
+            let (s, c) = modstate();
+            crate::dlog::dlog(&format!("hook vk={:#x} -> {msg:?} s={s} c={c}", kb.vkCode));
             // changement d'app devant la bulle : suggestion périmée → on la ferme
             // (Invalidate) et la frappe repasse comme bulle fermée. Sans ça, en mode
             // forcé, toutes les frappes seraient avalées PARTOUT jusqu'à Échap.
@@ -214,8 +215,39 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 crate::dlog::dlog("avale la touche");
                 return LRESULT(1);
             }
+        } else if !ignore && is_modifier(kb.vkCode) {
+            // diagnostic : les modificateurs ne classent aucun message et étaient
+            // invisibles au journal — on les rend visibles avec l'état lu par le
+            // hook, pour corréler Maj/Caps au moment d'une frappe testée
+            let (s, c) = modstate();
+            let up = wparam.0 == 0x101 || wparam.0 == 0x105; // WM_KEYUP / WM_SYSKEYUP
+            crate::dlog::dlog(&format!(
+                "mod vk={:#x} {} s={s} c={c}",
+                kb.vkCode,
+                if up { "up" } else { "down" }
+            ));
         }
         CallNextHookEx(None, code, wparam, lparam)
+    }
+}
+
+/// vk des modificateurs seuls (jamais classés en message).
+/// shortcut: une const avec `|` serait UNE valeur (0xFF), pas une liste —
+/// d'où le match en fonction
+fn is_modifier(vk: u32) -> bool {
+    matches!(
+        vk,
+        0x10 | 0xA0 | 0xA1 | 0x11 | 0xA2 | 0xA3 | 0x12 | 0xA4 | 0xA5 | 0x14 | 0x5B | 0x5C
+    )
+}
+
+/// État que `to_char` utilise pour traduire (Maj tenue / CapsLock verrouillé) — journal.
+fn modstate() -> (bool, bool) {
+    unsafe {
+        let down = |v: i32| GetAsyncKeyState(v) & 0x8000u16 as i16 != 0;
+        let s = down(VK_SHIFT.0 as i32) || down(VK_LSHIFT.0 as i32) || down(VK_RSHIFT.0 as i32);
+        let c = GetKeyState(VK_CAPITAL.0 as i32) & 1i16 != 0;
+        (s, c)
     }
 }
 
@@ -299,10 +331,7 @@ fn classify(kb: &KBDLLHOOKSTRUCT, wparam: WPARAM) -> Option<KeyMsg> {
             return Some(KeyMsg::Other);
         }
         // modificateurs seuls (Shift/Ctrl/Alt/Caps/Win) : ni caractère ni fermeture de bulle
-        if matches!(
-            vk,
-            0x10 | 0xA0 | 0xA1 | 0x11 | 0xA2 | 0xA3 | 0x12 | 0xA4 | 0xA5 | 0x14 | 0x5B | 0x5C
-        ) {
+        if is_modifier(vk) {
             return None;
         }
 
@@ -464,6 +493,25 @@ mod tests {
         assert_eq!(flow(KeyMsg::Char('a'), false), (true, false));
         // Ctrl+V pendant la bulle : transmis (ferme la bulle), non avalé
         assert_eq!(flow(KeyMsg::Invalidate, true), (true, false));
+    }
+
+    #[test]
+    fn modificateurs_reconnus_un_par_un() {
+        // piège : un const avec `|` vaut 0xFF — un seul vk correspondrait
+        for vk in [
+            0x10, 0xA0, 0xA1, 0x11, 0xA2, 0xA3, 0x12, 0xA4, 0xA5, 0x14, 0x5B, 0x5C,
+        ] {
+            assert!(
+                super::is_modifier(vk),
+                "vk={vk:#x} doit être un modificateur"
+            );
+        }
+        for vk in [0x33, 0x41, 0x08, 0x0D, 0x1B, 0xFF] {
+            assert!(
+                !super::is_modifier(vk),
+                "vk={vk:#x} n'est pas un modificateur"
+            );
+        }
     }
 
     /// Pourquoi `to_char` lit le verrou CapsLock avec `GetKeyState` : le bit
