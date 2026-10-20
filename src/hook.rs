@@ -19,8 +19,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
-    KBDLLHOOKSTRUCT, MSG, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL,
-    WM_HOTKEY, WM_KEYDOWN, WM_SYSKEYDOWN,
+    KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_SYSKEYDOWN,
 };
 use windows::core::PWSTR;
 
@@ -36,6 +37,10 @@ pub enum KeyMsg {
     Other,
     /// raccourci clavier (Ctrl+V…) : le presse-papiers a désynchronisé le buffer
     Invalidate,
+    /// définition prête (payload dans `def::DEF`) : ouvre la bulle de définition
+    Def,
+    /// clic gauche enfoncé : ferme la bulle de définition (et rien d'autre)
+    Click,
 }
 
 static TX: OnceLock<Sender<KeyMsg>> = OnceLock::new();
@@ -96,6 +101,15 @@ pub fn is_paused() -> bool {
     PAUSED.load(Ordering::Relaxed)
 }
 
+/// Envoie un message depuis un worker (définition) et réveille le rendu.
+pub(crate) fn notify(msg: KeyMsg) {
+    if let Some(tx) = TX.get()
+        && tx.send(msg).is_ok()
+    {
+        repint();
+    }
+}
+
 pub fn is_force() -> bool {
     FORCE.load(Ordering::Relaxed)
 }
@@ -138,6 +152,11 @@ pub fn run(tx: Sender<KeyMsg>) {
         let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), None, 0)
             .expect("SetWindowsHookExW a échoué");
         crate::dlog::dlog("hook installé");
+        // souris sur le même thread : les deux hooks partagent la boucle
+        // GetMessageW ci-dessous (obligatoire pour les hooks low-level)
+        let hookm = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0)
+            .expect("SetWindowsHookExW (souris) a échoué");
+        crate::dlog::dlog("hook souris installé");
         // Ctrl+Alt+P : hwnd = None → WM_HOTKEY est posté dans la file de CE thread,
         // donc reçu par la boucle GetMessageW ci-dessous (pas de fenêtre dédiée).
         if let Err(e) = RegisterHotKey(
@@ -158,6 +177,7 @@ pub fn run(tx: Sender<KeyMsg>) {
             DispatchMessageW(&msg);
         }
         let _ = UnregisterHotKey(None, HOTKEY_PAUSE);
+        let _ = UnhookWindowsHookEx(hookm);
         let _ = UnhookWindowsHookEx(hook);
     }
 }
@@ -167,6 +187,9 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         if code < 0 {
             return CallNextHookEx(None, code, wparam, lparam);
         }
+        // toute frappe (même en pause) invalide une recherche de définition en
+        // vol — placé AVANT le test PAUSED : une annulation doit toujours passer
+        crate::def::bump();
         // en pause : aucune frappe traitée, aucun swallow — le hook fait juste transiter
         if PAUSED.load(Ordering::Relaxed) {
             return CallNextHookEx(None, code, wparam, lparam);
@@ -248,6 +271,84 @@ fn modstate() -> (bool, bool) {
         let s = down(VK_SHIFT.0 as i32) || down(VK_LSHIFT.0 as i32) || down(VK_RSHIFT.0 as i32);
         let c = GetKeyState(VK_CAPITAL.0 as i32) & 1i16 != 0;
         (s, c)
+    }
+}
+
+/// État du glisser souris (thread du hook, entre down et up).
+struct MouseState {
+    down: Option<(i32, i32)>,
+    last_up: Option<((i32, i32), std::time::Instant)>,
+}
+static MOUSE: Mutex<MouseState> = Mutex::new(MouseState {
+    down: None,
+    last_up: None,
+});
+
+/// glissement minimal détecté (euclidien² > 36) pour qu'un simple clic
+/// compte comme sélection
+const DRAG_PX: i32 = 6;
+/// fenêtre du double-clic : le 2e relâché survient dans ce délai
+const DOUBLE_MS: u64 = 450;
+/// deux clics rapides MAIS éloignés = deux clics, pas une sélection
+const DOUBLE_PX: i32 = 10;
+
+/// Relâchement gauche = sélection probable ? glissement > 6 px, ou
+/// double-clic (2e relâché ≤ 450 ms après le précédent, même endroit).
+fn drag_detected(down: (i32, i32), up: (i32, i32), prev_up: Option<((i32, i32), u64)>) -> bool {
+    let dx = up.0 - down.0;
+    let dy = up.1 - down.1;
+    if dx * dx + dy * dy > DRAG_PX * DRAG_PX {
+        return true;
+    }
+    let Some((p, ms)) = prev_up else { return false };
+    if ms > DOUBLE_MS {
+        return false;
+    }
+    let ex = down.0 - p.0;
+    let ey = down.1 - p.1;
+    ex * ex + ey * ey <= DOUBLE_PX * DOUBLE_PX
+}
+
+/// Hook souris (WH_MOUSE_LL) : détection de sélection, jamais de swallow.
+/// Rapide : mutex + spawn seulement — presse-papiers et réseau vivent dans
+/// `def::worker`.
+unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        if code >= 0 {
+            let ms = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+            let pt = (ms.pt.x, ms.pt.y);
+            match wparam.0 as u32 {
+                WM_LBUTTONDOWN => {
+                    // le clic ferme la bulle de définition et invalide une
+                    // recherche en vol (un changement d'app passe par un clic)
+                    MOUSE.lock().unwrap().down = Some(pt);
+                    crate::def::bump();
+                    notify(KeyMsg::Click);
+                }
+                WM_LBUTTONUP => {
+                    let mut g = MOUSE.lock().unwrap();
+                    let down = g.down.take();
+                    let prev = g.last_up.map(|(p, t)| (p, t.elapsed().as_millis() as u64));
+                    g.last_up = Some((pt, std::time::Instant::now()));
+                    drop(g);
+                    if let Some(d) = down
+                        && !is_paused()
+                        && drag_detected(d, pt, prev)
+                        // app exclue (exclusions.txt) : pas de déclencheur
+                        && !is_excluded()
+                        && crate::def::try_begin()
+                    {
+                        // epoch figé au relâchement : le worker refuse d'injecter
+                        // si l'utilisateur a repris la main entre-temps
+                        let epoch_up = crate::def::current();
+                        crate::dlog::dlog(&format!("def : sélection détectée {d:?}→{pt:?}"));
+                        std::thread::spawn(move || crate::def::worker(epoch_up));
+                    }
+                }
+                _ => {}
+            }
+        }
+        CallNextHookEx(None, code, wparam, lparam)
     }
 }
 
@@ -467,6 +568,21 @@ unsafe fn to_char(kb: &KBDLLHOOKSTRUCT) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn drag_ou_double_clic_detectes() {
+        // glissement > 6 px = sélection par drag
+        assert!(super::drag_detected((0, 0), (7, 0), None));
+        // 5 px = simple clic (bruit de main)
+        assert!(!super::drag_detected((0, 0), (5, 0), None));
+        // double-clic : 2e relâché dans les 450 ms au même endroit
+        assert!(super::drag_detected((0, 0), (0, 0), Some(((0, 0), 400))));
+        assert!(super::drag_detected((0, 0), (0, 0), Some(((2, 2), 450))));
+        // trop lent = deux clics indépendants
+        assert!(!super::drag_detected((0, 0), (0, 0), Some(((0, 0), 600))));
+        // rapides mais éloignés = deux clics, pas une sélection
+        assert!(!super::drag_detected((0, 0), (0, 0), Some(((50, 50), 400))));
+    }
+
     #[test]
     fn exclusions_ignore_commentaires_casse_et_espaces() {
         let v = super::parse_exclusions("# Discord.exe\nSteam.EXE\n\n  vscode.exe  \n");

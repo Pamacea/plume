@@ -5,7 +5,6 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use eframe::egui;
-use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 
 use crate::config::{self, Config};
 use crate::conj;
@@ -40,6 +39,11 @@ pub struct App {
     conj: Option<conj::Conj>,
     buffer: String,
     popup: Option<Popup>,
+    /// bulle de définition (mot, texte) — invariant : jamais avec `popup`
+    def: Option<(String, String)>,
+    /// hwnd de l'app devant laquelle la déf est ouverte (0 = aucune) :
+    /// un changement d'app la rend périmée → fermeture au prochain frame
+    def_hwnd: isize,
     /// position logique demandée pour la bulle (dernier caret), recalée dans la
     /// zone de travail au rendu — la taille réelle n'est connue qu'alors
     bubble_pos: Option<egui::Pos2>,
@@ -49,7 +53,6 @@ pub struct App {
     /// buffer vidé par Ctrl+C/V : plus de contexte de phrase → la popup
     /// suivante ne doit pas deviner une majuscule (« Désargenté » à tort)
     post_invalidate: bool,
-    enigo: Enigo,
     hidden_sent: bool,
     frames: u64,
     /// dernier état connu de `hook::is_paused` (détection de transition en `ui`)
@@ -67,10 +70,11 @@ impl App {
             conj: conj::Conj::load(),
             buffer: String::new(),
             popup: None,
+            def: None,
+            def_hwnd: 0,
             bubble_pos: None,
             caret_px: (0, 0),
             post_invalidate: false,
-            enigo: Enigo::new(&Settings::default()).expect("enigo"),
             hidden_sent: false,
             frames: 0,
             // false = « pas encore en pause » : si la hotkey a basculé pendant le
@@ -79,8 +83,14 @@ impl App {
         }
     }
 
-    fn on_msg(&mut self, msg: KeyMsg, ctx: &egui::Context) {
+    /// `pending` = lettres déjà arrivées dans l'app derrière ce message (l'utilisateur
+    /// tape plus vite que le traitement) : elles limitent ce qu'on peut réécrire.
+    fn on_msg(&mut self, msg: KeyMsg, ctx: &egui::Context, pending: usize) {
         crate::dlog::dlog(&format!("reçu {msg:?}"));
+        // toute frappe OU clic ferme la bulle de définition (sauf le Def lui-même)
+        if !matches!(msg, KeyMsg::Def) {
+            self.close_def(ctx);
+        }
         match msg {
             KeyMsg::Invalidate => {
                 // presse-papiers ou raccourci : on ne peut plus garantir que le buffer
@@ -95,19 +105,27 @@ impl App {
                     // (prioritaire même sur une correction typographique)
                     self.close(ctx);
                 }
+                // lettre déjà en attente = frappe plus rapide que notre injection :
+                // corriger annulerait la lettre suivante (« d'n » au lieu de
+                // « d'un ») — la correction typographique est cosmétique, on garde
+                // l'état réel de l'app
+                let fixes = if pending > 0 {
+                    Vec::new()
+                } else {
+                    punct::corrections(c, &self.buffer)
+                };
                 // le caractère vient d'être injecté par l'OS avant notre traitement :
                 // on corrige d'abord, on ne push que le résultat final
-                match punct::corrections(c, &self.buffer).as_slice() {
+                match fixes.as_slice() {
                     // annulation pure (double espace) : rien à pousser, pas de délimiteur
                     // à traiter — le 1er espace l'a déjà été
                     [punct::Fix::CancelLast] => {
-                        self.backspaces(1);
+                        self.inject(1, "");
                         return;
                     }
                     // le buffer suit l'app : `insert` contient déjà le caractère final
                     [punct::Fix::Rewrite { backspaces, insert }] => {
-                        self.backspaces(*backspaces);
-                        let _ = self.enigo.text(insert);
+                        self.inject(*backspaces, insert);
                         self.buffer.push_str(insert);
                     }
                     _ => self.buffer.push(c),
@@ -189,6 +207,18 @@ impl App {
                 }
             }
             KeyMsg::Other => self.close(ctx),
+            // fermeture déjà faite ci-dessus ; le nom empêche toute extinction
+            // future par `flow`
+            KeyMsg::Click => {}
+            KeyMsg::Def => {
+                // invariant : jamais suggestion ET définition ensemble
+                self.close(ctx);
+                if let Some((e, mot, text)) = crate::def::take_def()
+                    && e == crate::def::current()
+                {
+                    self.show_def(ctx, mot, text);
+                }
+            }
         }
     }
 
@@ -303,27 +333,74 @@ impl App {
             alt = config::capitalize(&alt);
         }
         crate::dlog::dlog(&format!("replace '{}' -> '{}{}'", p.trigger, alt, p.delim));
-        // déclencheur + délimiteur déjà présents dans l'application
-        self.backspaces(p.trigger_len + 1);
-        let _ = self.enigo.text(&alt);
-        std::thread::sleep(Duration::from_millis(2));
-        let _ = self.enigo.text(&p.delim.to_string());
+        // déclencheur + délimiteur déjà présents dans l'application ;
+        // alt + délimiteur partent dans le même lot que les backspaces
+        let mut texte = alt.clone();
+        texte.push(p.delim);
+        self.inject(p.trigger_len + 1, &texte);
         // nos envois sont "injected" (ignorés par le hook) : on recalcule le buffer
         // à la main — vider perdait le contexte de phrase et le match suivant
         // voyait un début de phrase → majuscule à tort (« Splendide »)
         self.buffer = after_replace(&self.buffer, p.trigger_len + 1, &alt, p.delim);
     }
 
-    /// Simule `n` backspaces dans l'application cible (déjà frappés avant notre traitement).
-    fn backspaces(&mut self, n: usize) {
-        for _ in 0..n {
-            let _ = self.enigo.key(Key::Backspace, Direction::Click);
-            std::thread::sleep(Duration::from_millis(2));
+    /// Un SEUL `SendInput` : `backspaces` retours + `texte` en unicode. Éclater
+    /// les envois (2 ms de sleep par backspace) laissait l'utilisateur glisser
+    /// ses lettres au milieu — elles étaient effacées (« d'n » au lieu de
+    /// « d'un », « ; ; »). Les events sont `injected` → ignorés par notre hook.
+    fn inject(&mut self, backspaces: usize, texte: &str) {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
+            KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY,
+        };
+        let vk = |flags: KEYBD_EVENT_FLAGS| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(0x08),
+                    wScan: 0,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        let uni = |c: u16, flags: KEYBD_EVENT_FLAGS| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(0),
+                    wScan: c,
+                    dwFlags: flags | KEYEVENTF_UNICODE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        let mut inputs: Vec<INPUT> = Vec::with_capacity(backspaces * 2 + texte.len() * 2);
+        for _ in 0..backspaces {
+            inputs.push(vk(KEYBD_EVENT_FLAGS(0)));
+            inputs.push(vk(KEYEVENTF_KEYUP));
+        }
+        for c in texte.encode_utf16() {
+            inputs.push(uni(c, KEYBD_EVENT_FLAGS(0)));
+            inputs.push(uni(c, KEYEVENTF_KEYUP));
+        }
+        if inputs.is_empty() {
+            return;
+        }
+        unsafe {
+            let _ = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
         }
     }
 
     fn show_at_caret(&mut self, ctx: &egui::Context) {
-        let (x, y) = caret_pos();
+        let pt = caret_pos();
+        self.show_at(ctx, pt);
+    }
+
+    /// Ouvre la bulle à `pt` (pixels écran logiques, contract de `show_at`).
+    fn show_at(&mut self, ctx: &egui::Context, (x, y): (i32, i32)) {
         self.caret_px = (x, y); // brute : sert à choisir le moniteur du clamp
         let scale = ctx.native_pixels_per_point().unwrap_or(1.0);
         crate::dlog::dlog(&format!("show caret=({x},{y}) scale={scale}"));
@@ -331,6 +408,27 @@ impl App {
         self.bubble_pos = Some(pos);
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+    }
+
+    /// Bulle de définition : curseur au reçu ; l'app cible est encore au
+    /// premier plan → hwnd mémorisé pour la fermeture au changement d'app.
+    /// SANS `set_popup_open` : aucune touche n'est volée à l'application.
+    fn show_def(&mut self, ctx: &egui::Context, mot: String, text: String) {
+        unsafe {
+            self.def_hwnd =
+                windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow().0 as isize;
+        }
+        let pt = cursor_pos();
+        crate::dlog::dlog(&format!("def ouverte « {mot} » hwnd={}", self.def_hwnd));
+        self.show_at(ctx, pt);
+        self.def = Some((mot, text));
+    }
+
+    fn close_def(&mut self, ctx: &egui::Context) {
+        if self.def.take().is_some() {
+            self.def_hwnd = 0;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
     }
 
     fn close(&mut self, ctx: &egui::Context) {
@@ -510,6 +608,20 @@ fn work_area(pt: (i32, i32), scale: f32) -> (f32, f32, f32, f32) {
     }
 }
 
+/// Habillage commun des bulles (suggestion de correction et définition).
+fn bubble_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(egui::Color32::from_rgba_unmultiplied(24, 24, 32, 245))
+        .corner_radius(10.0)
+        .inner_margin(egui::Margin::same(10))
+        .shadow(egui::epaint::Shadow {
+            offset: [0, 4],
+            blur: 12,
+            spread: 0,
+            color: egui::Color32::BLACK.linear_multiply(0.4),
+        })
+}
+
 impl eframe::App for App {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         // opaque et identique à la bulle : la transparence DWM rend un carré blanc
@@ -522,6 +634,21 @@ impl eframe::App for App {
         crate::tray::poll();
         let ctx = ui.ctx().clone();
         self.frames += 1;
+        // changement d'app avec la définition ouverte : bulle périmée
+        // (≥1 fois/frame, soit toutes les ~250 ms grâce au repaint périodique)
+        if self.def.is_some()
+            && self.def_hwnd != 0
+            && unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0 as isize
+                != self.def_hwnd
+        {
+            crate::dlog::dlog(&format!(
+                "def : changement d'app — fermeture (fg={} def={})",
+                unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0
+                    as isize,
+                self.def_hwnd
+            ));
+            self.close_def(&ctx);
+        }
         if self.frames == 1 {
             // OnceLock : le hook réveille le rendu à chaque frappe utile envoyée
             hook::set_repaint_ctx(ctx.clone());
@@ -539,6 +666,7 @@ impl eframe::App for App {
         let paused = hook::is_paused();
         if paused != self.paused {
             self.close(&ctx);
+            self.close_def(&ctx);
             if paused {
                 crate::dlog::dlog(&format!(
                     "pause : libéré spell={} conj={}",
@@ -556,8 +684,18 @@ impl eframe::App for App {
             }
             self.paused = paused;
         }
+        // drain complet d'un coup : on sait alors quelles lettres sont déjà
+        // arrivées dans l'app derrière le message traité (`pending`)
+        let mut msgs: Vec<KeyMsg> = Vec::new();
         while let Ok(msg) = self.rx.try_recv() {
-            self.on_msg(msg, &ctx);
+            msgs.push(msg);
+        }
+        for i in 0..msgs.len() {
+            let pending = msgs[i + 1..]
+                .iter()
+                .filter(|m| matches!(m, KeyMsg::Char(_) | KeyMsg::Backspace))
+                .count();
+            self.on_msg(msgs[i], &ctx, pending);
         }
 
         let mut clicked: Option<usize> = None;
@@ -565,85 +703,95 @@ impl eframe::App for App {
         let follow = self.popup.as_ref().is_some_and(|p| p.scroll_to_sel);
         let mut bubble_size: Option<egui::Vec2> = None;
         if let Some(p) = &self.popup {
-            let frame = egui::Frame::new()
-                .fill(egui::Color32::from_rgba_unmultiplied(24, 24, 32, 245))
-                .corner_radius(10.0)
-                .inner_margin(egui::Margin::same(10))
-                .shadow(egui::epaint::Shadow {
-                    offset: [0, 4],
-                    blur: 12,
-                    spread: 0,
-                    color: egui::Color32::BLACK.linear_multiply(0.4),
-                })
-                .show(ui, |ui| {
-                    ui.set_max_width(280.0);
-                    // le déclencheur reste le sujet de la bulle (la déf vit
-                    // sur les alternatives, voir plus bas)
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(format!("« {} »", p.trigger))
-                                .weak()
-                                .italics(),
-                        )
-                        .wrap(),
-                    );
-                    ui.add_space(2.0);
-                    // hauteur plafonnée ≈ 7 lignes à 17px ; auto_shrink (défaut)
-                    // suit le contenu en dessous → pas de boîte vide
-                    egui::ScrollArea::vertical()
-                        .max_height(210.0)
-                        .show(ui, |ui| {
-                            for (i, alt) in p.alts.iter().enumerate() {
-                                let sel = i == p.sel;
-                                // casse proposée selon le contexte (début de phrase détecté)
-                                let alt = if p.capitalized {
-                                    config::capitalize(alt)
-                                } else {
-                                    alt.clone()
-                                };
-                                let resp = ui.selectable_label(
-                                    sel,
-                                    egui::RichText::new(format!("{}. {}", i + 1, alt)).size(17.0),
-                                );
-                                if follow && sel {
-                                    resp.scroll_to_me(Some(egui::Align::Center));
-                                }
-                                if resp.clicked() {
-                                    clicked = Some(i);
-                                }
-                                // la déf porte sur l'alternative proposée, pas sur le mot tapé
-                                if let Some(def) = p.defs.get(i).and_then(|d| d.as_deref()) {
-                                    // ≤ 2 lignes (~6,5 px/car. à 11 px), 70 car. max
-                                    let max = ((ui.available_width() * 2.0 / 6.5) as usize).min(70);
-                                    if max >= 10 {
-                                        let short: String = def.chars().take(max).collect();
-                                        let short = if def.chars().count() > max {
-                                            format!("{short}…")
-                                        } else {
-                                            short
-                                        };
-                                        ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(short)
-                                                    .size(11.0)
-                                                    .italics()
-                                                    .weak(),
-                                            )
-                                            .wrap(),
-                                        );
-                                    }
+            let frame = bubble_frame().show(ui, |ui| {
+                ui.set_max_width(280.0);
+                // le déclencheur reste le sujet de la bulle (la déf vit
+                // sur les alternatives, voir plus bas)
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("« {} »", p.trigger))
+                            .weak()
+                            .italics(),
+                    )
+                    .wrap(),
+                );
+                ui.add_space(2.0);
+                // hauteur plafonnée ≈ 7 lignes à 17px ; auto_shrink (défaut)
+                // suit le contenu en dessous → pas de boîte vide
+                egui::ScrollArea::vertical()
+                    .max_height(210.0)
+                    .show(ui, |ui| {
+                        for (i, alt) in p.alts.iter().enumerate() {
+                            let sel = i == p.sel;
+                            // casse proposée selon le contexte (début de phrase détecté)
+                            let alt = if p.capitalized {
+                                config::capitalize(alt)
+                            } else {
+                                alt.clone()
+                            };
+                            let resp = ui.selectable_label(
+                                sel,
+                                egui::RichText::new(format!("{}. {}", i + 1, alt)).size(17.0),
+                            );
+                            if follow && sel {
+                                resp.scroll_to_me(Some(egui::Align::Center));
+                            }
+                            if resp.clicked() {
+                                clicked = Some(i);
+                            }
+                            // la déf porte sur l'alternative proposée, pas sur le mot tapé
+                            if let Some(def) = p.defs.get(i).and_then(|d| d.as_deref()) {
+                                // ≤ 2 lignes (~6,5 px/car. à 11 px), 70 car. max
+                                let max = ((ui.available_width() * 2.0 / 6.5) as usize).min(70);
+                                if max >= 10 {
+                                    let short: String = def.chars().take(max).collect();
+                                    let short = if def.chars().count() > max {
+                                        format!("{short}…")
+                                    } else {
+                                        short
+                                    };
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(short).size(11.0).italics().weak(),
+                                        )
+                                        .wrap(),
+                                    );
                                 }
                             }
-                        });
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new("↑↓ naviguer · Entrée valider · Échap fermer")
-                            .weak()
-                            .size(11.0),
-                    );
-                });
+                        }
+                    });
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("↑↓ naviguer · Entrée valider · Échap fermer")
+                        .weak()
+                        .size(11.0),
+                );
+            });
             // la fenêtre épouse la bulle : sinon elle garde sa taille par défaut (~800×600)
             // et affiche un gros carré opaque autour
+            bubble_size = Some(frame.response.rect.size());
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(frame.response.rect.size()));
+        } else if let Some((mot, text)) = &self.def {
+            // même habillage que la suggestion, corps = la définition complète
+            let frame = bubble_frame().show(ui, |ui| {
+                ui.set_max_width(280.0);
+                ui.add(
+                    egui::Label::new(egui::RichText::new(format!("« {mot} »")).weak().italics())
+                        .wrap(),
+                );
+                ui.add_space(2.0);
+                egui::ScrollArea::vertical()
+                    .max_height(240.0)
+                    .show(ui, |ui| {
+                        ui.add(egui::Label::new(egui::RichText::new(text).size(13.0)).wrap());
+                    });
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("taper ou cliquer pour fermer")
+                        .weak()
+                        .size(11.0),
+                );
+            });
             bubble_size = Some(frame.response.rect.size());
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(frame.response.rect.size()));
         } else {

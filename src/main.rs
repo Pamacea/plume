@@ -4,6 +4,7 @@
 mod app;
 mod config;
 mod conj;
+mod def;
 mod dlog;
 mod hook;
 mod punct;
