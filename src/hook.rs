@@ -1,27 +1,29 @@
 //! Hook clavier global (WH_KEYBOARD_LL) : reconstitue les caractères tapés
 //! via ToUnicodeEx et avale ↑↓/Entrée/Échap quand la bulle est ouverte.
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
 use eframe::egui;
 use windows::Win32::Foundation::{CloseHandle, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::{
-    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetKeyState, GetKeyboardLayout, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
-    RegisterHotKey, ToUnicodeEx, UnregisterHotKey, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DOWN,
-    VK_END, VK_ESCAPE, VK_HOME, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
-    VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
-    VK_UP,
+    GetAsyncKeyState, GetKeyState, GetKeyboardLayout, INPUT, INPUT_0, INPUT_KEYBOARD,
+    KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_ALT, MOD_CONTROL,
+    MOD_NOREPEAT, RegisterHotKey, SendInput, ToUnicodeEx, UnregisterHotKey, VIRTUAL_KEY, VK_BACK,
+    VK_CAPITAL, VK_CONTROL, VK_DOWN, VK_END, VK_ESCAPE, VK_F11, VK_F12, VK_F24, VK_HOME,
+    VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RCONTROL,
+    VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
-    KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_SYSKEYDOWN,
+    KBDLLHOOKSTRUCT, KillTimer, MSG, MSLLHOOKSTRUCT, SetTimer, SetWindowsHookExW, TranslateMessage,
+    UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_SYSKEYDOWN, WM_TIMER, WindowFromPoint,
 };
 use windows::core::PWSTR;
 
@@ -52,12 +54,22 @@ static POPUP_OPEN: AtomicBool = AtomicBool::new(false);
 /// l'utilisateur passe à une autre app, la suggestion est périmée — sans ça,
 /// une bulle laissée ouverte + mode forcé = clavier bloqué PARTOUT
 static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
+/// instant (ms epoch) d'ouverture de la suggestion : la fenêtre n'est à
+/// l'écran qu'à la frame suivante, un clic reçu avant ne doit pas la fermer
+static POPUP_SINCE: AtomicU64 = AtomicU64::new(0);
 static INJECT_TEST: AtomicBool = AtomicBool::new(false);
 /// pause globale : en true, hook_proc laisse passer toutes les frappes sans traiter
 static PAUSED: AtomicBool = AtomicBool::new(false);
-/// mode forcé (option tray, défaut off) : en true, l'écriture est bloquée
-/// tant que la bulle est ouverte ; sinon la frappe ferme la bulle et passe
-static FORCE: AtomicBool = AtomicBool::new(false);
+/// pédale F24 : un appui armé (true) attend un éventuel 2e appui pendant 250 ms.
+/// Aucune serrure : le hook et la boucle de messages vivent sur le MÊME thread —
+/// pas de mutex, donc pas de deadlock possible dans le callback.
+static F24_PENDING: AtomicBool = AtomicBool::new(false);
+/// id du timer WM_TIMER qui déclenche F12 après la fenêtre (0 = aucun)
+static F24_TIMER: AtomicUsize = AtomicUsize::new(0);
+/// marque nos propres injections SendInput (`dwExtraInfo`) : le hook les ignore.
+/// Indispensable depuis la redirection Alt+Tab → Alt+Esc : sans elle, notre Esc
+/// injecté serait classé Escape et avalé par la règle « bulle ouverte ».
+pub(crate) const MAGIC: usize = 0x504C_554D; // « PLUM »
 /// dernière touche morte vue (vk, scan) en attente de composition : l'état de
 /// ToUnicodeEx est PARTAGÉ avec l'app (constaté : son rendu suit nos appels) →
 /// on le réarme après chaque composition pour qu'elle compose aussi
@@ -78,6 +90,21 @@ pub fn set_popup_open(v: bool) {
         0
     };
     POPUP_HWND.store(hwnd, Ordering::Relaxed);
+    POPUP_SINCE.store(if v { now_ms() } else { 0 }, Ordering::Relaxed);
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// La bulle a-t-elle eu le temps d'apparaître ? `Visible(true)` n'est appliqué
+/// qu'après la frame en cours.
+/// shortcut: marge fixe 400 ms ; un clic raté est rattrapé à la frappe suivante
+fn popup_drawn() -> bool {
+    now_ms().saturating_sub(POPUP_SINCE.load(Ordering::Relaxed)) > 400
 }
 
 pub fn set_paused(v: bool) {
@@ -108,21 +135,6 @@ pub(crate) fn notify(msg: KeyMsg) {
     {
         repint();
     }
-}
-
-pub fn is_force() -> bool {
-    FORCE.load(Ordering::Relaxed)
-}
-
-pub fn set_force(v: bool) {
-    if v != is_force() {
-        crate::dlog::dlog(if v {
-            "MODE FORCÉ activé"
-        } else {
-            "MODE FORCÉ levé"
-        });
-    }
-    FORCE.store(v, Ordering::Relaxed);
 }
 
 /// Bascule la pause (hotkey Ctrl+Alt+P et menu tray) et referme la bulle ouverte :
@@ -173,6 +185,16 @@ pub fn run(tx: Sender<KeyMsg>) {
                 toggle_paused();
                 continue;
             }
+            // fin de la fenêtre F24 sans 2e appui → appui simple : F12
+            let timer = F24_TIMER.load(Ordering::Relaxed);
+            if msg.message == WM_TIMER && timer != 0 && msg.wParam.0 == timer {
+                F24_TIMER.store(0, Ordering::Relaxed);
+                let _ = KillTimer(None, timer);
+                if F24_PENDING.swap(false, Ordering::Relaxed) {
+                    inject_key(VK_F12);
+                }
+                continue;
+            }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -183,6 +205,20 @@ pub fn run(tx: Sender<KeyMsg>) {
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // un panic ne doit jamais sortir d'un `extern "system"` (abort du process
+    // depuis Rust 1.81) ni geler la boucle de messages Windows
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        hook_impl(code, wparam, lparam)
+    })) {
+        Ok(r) => r,
+        Err(_) => {
+            crate::dlog::dlog("PANIC dans le hook clavier — touche laissée passer");
+            unsafe { CallNextHookEx(None, code, wparam, lparam) }
+        }
+    }
+}
+
+unsafe fn hook_impl(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         if code < 0 {
             return CallNextHookEx(None, code, wparam, lparam);
@@ -194,61 +230,97 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         if PAUSED.load(Ordering::Relaxed) {
             return CallNextHookEx(None, code, wparam, lparam);
         }
-        let kb = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
-        // 0x10 = LLKHF_INJECTED : seules nos propres frappes (backspace/Unicode via
-        // enigo) sont ignorées — sinon accepter « En réalité » re-déclencherait la
-        // bulle. Les injections tierces (macros : Ctrl/Alt/Échap) sont traitées
-        // normalement : sans ça aucun Invalidate → buffer périmé → popup à côté.
-        let injected = kb.flags.0 & 0x10 != 0;
-        let ours = matches!(kb.vkCode, 0x8 | 0xE7);
-        let ignore = injected && ours && !INJECT_TEST.load(Ordering::Relaxed);
-        if ignore {
-            crate::dlog::dlog(&format!("ignoré injected vk={:#x}", kb.vkCode));
+        // seuls les enfoncements portent une décision ; les relâchements passent
+        if wparam.0 != WM_KEYDOWN as usize && wparam.0 != WM_SYSKEYDOWN as usize {
+            return CallNextHookEx(None, code, wparam, lparam);
         }
-        if !ignore && let Some(msg) = classify(kb, wparam) {
-            if is_excluded() {
-                crate::dlog::dlog("exclu (app dans exclusions.txt) — frappe ignorée");
-                return CallNextHookEx(None, code, wparam, lparam);
-            }
-            let (s, c) = modstate();
-            crate::dlog::dlog(&format!("hook vk={:#x} -> {msg:?} s={s} c={c}", kb.vkCode));
-            // changement d'app devant la bulle : suggestion périmée → on la ferme
-            // (Invalidate) et la frappe repasse comme bulle fermée. Sans ça, en mode
-            // forcé, toutes les frappes seraient avalées PARTOUT jusqu'à Échap.
-            let mut open = POPUP_OPEN.load(Ordering::Relaxed);
-            if open
-                && POPUP_HWND.load(Ordering::Relaxed) != 0
-                && GetForegroundWindow().0 as isize != POPUP_HWND.load(Ordering::Relaxed)
+        let kb = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        // nos propres injections (backspaces, unicode, Esc/F11/F12) — sans ça
+        // l'Esc d'Alt+Tab serait avalé par notre propre règle « bulle ouverte »
+        if injected_ours(kb) {
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
+        // app exclue : aucune frappe traitée, aucun remappage
+        if is_excluded() {
+            crate::dlog::dlog("exclu (app dans exclusions.txt) — frappe ignorée");
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
+        // CHANTIER 1 : état physique des modificateurs AVANT tout traitement métier
+        let m = mods();
+
+        // CHANTIER 2 — pédale F24 : double appui ≤ 250 ms → F11, appui simple → F12
+        if kb.vkCode == VK_F24.0 as u32 {
+            f24_tap();
+            return LRESULT(1);
+        }
+
+        // CHANTIER 2 — Alt GAUCHE + touche mappée → caractère spécial
+        if m.alt && !m.ctrl && !m.win {
+            // diagnostic : ce que Windows remonte réellement sous Alt
+            crate::dlog::dlog(&format!(
+                "alt vk={:#x} sc={:#x} shift={} caps={}",
+                kb.vkCode, kb.scanCode, m.shift, m.caps
+            ));
+            if let Some(c) =
+                key_scan(kb.scanCode, kb.vkCode).and_then(|k| special_char(k, m.shift, m.caps))
             {
+                crate::dlog::dlog(&format!("alt -> {c:?}"));
+                inject_char_under_alt(c);
+                // l'injection est ignorée par le hook : le buffer suit ici
+                notify(KeyMsg::Char(c));
+                return LRESULT(1);
+            }
+        }
+
+        // CHANTIER 1 — Ctrl/Win : pass-through absolu. `Invalidate` ne bloque
+        // rien, il remet juste le buffer à zéro (presse-papiers / changement d'app).
+        if m.win || m.ctrl {
+            // Ctrl+Alt+P = hotkey de pause (traitée par WM_HOTKEY) : buffer intact
+            if !(kb.vkCode == u32::from(b'P') && m.alt) {
+                notify(KeyMsg::Invalidate);
+            }
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
+        if m.alt {
+            // Alt+Tab → Alt+Esc : l'Alt physique est toujours tenu, l'Esc injecté
+            // suffit ; le buffer est invalidé puisqu'on change de fenêtre
+            if kb.vkCode == VK_TAB.0 as u32 && !m.shift {
+                crate::dlog::dlog("alt+tab -> alt+esc");
+                inject_key(VK_ESCAPE);
+                notify(KeyMsg::Invalidate);
+                return LRESULT(1);
+            }
+            // tout autre Alt+X (menus, Alt+F4…) : jamais intercepté
+            notify(KeyMsg::Invalidate);
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
+
+        if let Some(msg) = classify(kb) {
+            // Shift + touche de contrôle/navigation = raccourci de l'application
+            // (Shift+Enter → saut de ligne Discord, Shift+flèches → sélection) :
+            // la bulle se referme, la touche n'est jamais avalée
+            let msg = if m.shift && app_owns_shift(msg) {
+                KeyMsg::Other
+            } else {
+                msg
+            };
+            crate::dlog::dlog(&format!("hook vk={:#x} -> {msg:?}", kb.vkCode));
+            // changement d'app devant la bulle : suggestion périmée → on la ferme
+            // et la frappe repasse comme bulle fermée
+            let mut open = POPUP_OPEN.load(Ordering::Relaxed);
+            let popup_hwnd = POPUP_HWND.load(Ordering::Relaxed);
+            if open && popup_hwnd != 0 && GetForegroundWindow().0 as isize != popup_hwnd {
                 crate::dlog::dlog("changement d'app — bulle invalidée");
                 open = false;
-                if let Some(tx) = TX.get() {
-                    let _ = tx.send(KeyMsg::Invalidate);
-                }
-                repint();
+                notify(KeyMsg::Invalidate);
             }
-            let (transmit, swallow) = flow(msg, open);
-            if transmit
-                && let Some(tx) = TX.get()
-                && tx.send(msg).is_ok()
-            {
-                repint();
-            }
-            if swallow {
+            // CHANTIER 3 : toute frappe est transmise — c'est elle qui ferme la
+            // bulle, et le caractère qui la ferme ne doit jamais être avalé
+            notify(msg);
+            if swallow(msg, open) {
                 crate::dlog::dlog("avale la touche");
                 return LRESULT(1);
             }
-        } else if !ignore && is_modifier(kb.vkCode) {
-            // diagnostic : les modificateurs ne classent aucun message et étaient
-            // invisibles au journal — on les rend visibles avec l'état lu par le
-            // hook, pour corréler Maj/Caps au moment d'une frappe testée
-            let (s, c) = modstate();
-            let up = wparam.0 == 0x101 || wparam.0 == 0x105; // WM_KEYUP / WM_SYSKEYUP
-            crate::dlog::dlog(&format!(
-                "mod vk={:#x} {} s={s} c={c}",
-                kb.vkCode,
-                if up { "up" } else { "down" }
-            ));
         }
         CallNextHookEx(None, code, wparam, lparam)
     }
@@ -264,14 +336,241 @@ fn is_modifier(vk: u32) -> bool {
     )
 }
 
-/// État que `to_char` utilise pour traduire (Maj tenue / CapsLock verrouillé) — journal.
-fn modstate() -> (bool, bool) {
-    unsafe {
-        let down = |v: i32| GetAsyncKeyState(v) & 0x8000u16 as i16 != 0;
-        let s = down(VK_SHIFT.0 as i32) || down(VK_LSHIFT.0 as i32) || down(VK_RSHIFT.0 as i32);
-        let c = GetKeyState(VK_CAPITAL.0 as i32) & 1i16 != 0;
-        (s, c)
+/// État physique des modificateurs — lu AVANT le traitement, jamais pour la
+/// touche courante (son état n'est pas encore publié pendant le hook).
+#[derive(Clone, Copy)]
+struct Mods {
+    shift: bool,
+    ctrl: bool,
+    /// Alt GAUCHE seulement (RAlt = AltGr, voir `ctrl`)
+    alt: bool,
+    win: bool,
+    caps: bool,
+}
+
+fn down(vk: VIRTUAL_KEY) -> bool {
+    // 0x8000 = touche enfoncée ; le bit &1 (« pressée depuis le dernier appel »)
+    // n'est PAS le verrou — CapsLock se lit avec GetKeyState
+    unsafe { GetAsyncKeyState(vk.0 as i32) as u16 & 0x8000 != 0 }
+}
+
+fn mods() -> Mods {
+    // AltGr = RAlt + Ctrl synthétique : frappe normale (é, è, €…), pas un raccourci
+    let altgr = down(VK_RMENU);
+    Mods {
+        shift: down(VK_SHIFT) || down(VK_LSHIFT) || down(VK_RSHIFT),
+        ctrl: (down(VK_CONTROL) || down(VK_LCONTROL) || down(VK_RCONTROL)) && !altgr,
+        // VK_MENU en plus de VK_LMENU : certains pilotes ne publient que le
+        // générique ; RAlt (AltGr) exclu explicitement
+        alt: (down(VK_LMENU) || down(VK_MENU)) && !altgr,
+        win: down(VK_LWIN) || down(VK_RWIN),
+        caps: unsafe { GetKeyState(VK_CAPITAL.0 as i32) & 1 != 0 },
     }
+}
+
+/// Touche physique normalisée en scancode : scancode s'il est connu, sinon
+/// repli sur le vkCode (lettres et chiffres gardent le même vk d'un layout à
+/// l'autre). `None` = touche hors table.
+fn key_scan(scan: u32, vk: u32) -> Option<u32> {
+    const SCANS: [u32; 11] = [
+        0x03, 0x04, 0x05, 0x07, 0x0B, 0x16, 0x17, 0x18, 0x2E, 0x32, 0x34,
+    ];
+    if SCANS.contains(&scan) {
+        return Some(scan);
+    }
+    Some(match vk {
+        0x32 => 0x03, // VK_2
+        0x33 => 0x04, // VK_3
+        0x34 => 0x05, // VK_4
+        0x36 => 0x07, // VK_6
+        0x30 => 0x0B, // VK_0
+        0x55 => 0x16, // VK_U
+        0x49 => 0x17, // VK_I
+        0x4F => 0x18, // VK_O
+        0x43 => 0x2E, // VK_C
+        0xBC => 0x32, // VK_OEM_COMMA (« , »)
+        0xBA => 0x34, // VK_OEM_1 (« : »)
+        _ => return None,
+    })
+}
+
+/// Alt GAUCHE + touche → caractère spécial (ex-logique AHK v2), sur scancodes
+/// normalisés par `key_scan`.
+/// Lettres : majuscule = Shift XOR Verr Maj. `Shift` seul choisit la variante
+/// ponctuation. `None` = touche non mappée (l'Alt+X passe à l'application).
+fn special_char(scan: u32, shift: bool, caps: bool) -> Option<char> {
+    let upper = shift ^ caps;
+    Some(match scan {
+        // « 2 » : É seulement avec Shift — Alt+2 seul reste un raccourci
+        0x03 if shift => 'É',
+        0x04 => {
+            if shift {
+                '‹'
+            } else {
+                '«'
+            }
+        }
+        0x05 => {
+            if shift {
+                '›'
+            } else {
+                '»'
+            }
+        }
+        0x07 => {
+            if shift {
+                '—'
+            } else {
+                '–'
+            }
+        }
+        0x0B => 'À',
+        0x32 => '‽',
+        0x34 => '…',
+        0x2E => {
+            if upper {
+                'Ç'
+            } else {
+                'ç'
+            }
+        }
+        // œ/Œ sur Alt+Shift+O ; ô/Ô restent sur Alt+O
+        0x18 => {
+            if shift {
+                if caps { 'Œ' } else { 'œ' }
+            } else if caps {
+                'Ô'
+            } else {
+                'ô'
+            }
+        }
+        0x16 => {
+            if upper {
+                'Ù'
+            } else {
+                'ù'
+            }
+        }
+        0x17 => {
+            if upper {
+                'Ï'
+            } else {
+                'ï'
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// Décision d'un appui F24 : (reste en attente, touche à envoyer tout de suite).
+/// false → premier appui, on arme la fenêtre de 250 ms (F12 si rien ne vient).
+/// true  → second appui dans la fenêtre : F11 immédiat.
+fn f24_next(pending: bool) -> (bool, Option<VIRTUAL_KEY>) {
+    if pending {
+        (false, Some(VK_F11))
+    } else {
+        (true, None)
+    }
+}
+
+fn f24_tap() {
+    let (pending, fire) = f24_next(F24_PENDING.swap(false, Ordering::Relaxed));
+    F24_PENDING.store(pending, Ordering::Relaxed);
+    if let Some(k) = fire {
+        let t = F24_TIMER.swap(0, Ordering::Relaxed);
+        unsafe {
+            if t != 0 {
+                let _ = KillTimer(None, t);
+            }
+        }
+        inject_key(k);
+    } else {
+        // 0 = SetTimer a échoué : on désarme plutôt que laisser un état collé
+        let t = unsafe { SetTimer(None, 0, 250, None) };
+        if t == 0 {
+            F24_PENDING.store(false, Ordering::Relaxed);
+        }
+        F24_TIMER.store(t, Ordering::Relaxed);
+    }
+}
+
+/// Envoi groupé marqué MAGIC : le hook ignore ses propres événements.
+unsafe fn send(inputs: &[INPUT]) {
+    unsafe {
+        if !inputs.is_empty() {
+            let _ = SendInput(inputs, std::mem::size_of::<INPUT>() as i32);
+        }
+    }
+}
+
+/// Événement clavier marqué MAGIC : le hook ignore ses propres injections.
+fn key_event(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: vk,
+                wScan: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: MAGIC,
+            },
+        },
+    }
+}
+
+fn inject_key(vk: VIRTUAL_KEY) {
+    unsafe {
+        send(&[
+            key_event(vk, KEYBD_EVENT_FLAGS(0)),
+            key_event(vk, KEYEVENTF_KEYUP),
+        ])
+    }
+}
+
+/// Ajoute le caractère en événements Unicode (paire de substitution incluse).
+fn push_char(inputs: &mut Vec<INPUT>, c: char) {
+    let mut buf = [0u16; 2];
+    let n = c.encode_utf16(&mut buf).len();
+    for &u in &buf[..n] {
+        for flags in [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP] {
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VIRTUAL_KEY(0),
+                        wScan: u,
+                        dwFlags: flags,
+                        time: 0,
+                        dwExtraInfo: MAGIC,
+                    },
+                },
+            });
+        }
+    }
+}
+
+/// Alt tenu, l'injection Unicode arriverait en WM_SYSCHAR (ignoré par les
+/// applis) : on relâche Alt le temps de la frappe puis on le remet, en un seul
+/// SendInput pour que l'app ne voie jamais un Alt isolé (barre de menus).
+fn inject_char_under_alt(c: char) {
+    let mut inputs = Vec::with_capacity(6);
+    inputs.push(key_event(VK_LMENU, KEYEVENTF_KEYUP));
+    push_char(&mut inputs, c);
+    inputs.push(key_event(VK_LMENU, KEYBD_EVENT_FLAGS(0)));
+    unsafe { send(&inputs) }
+}
+
+/// Nos injections : SendInput marqué MAGIC, plus l'ancien repérage vk 0x8/0xE7
+/// (rétrocompatible). En mode test, on les laisse passer pour pouvoir simuler.
+fn injected_ours(kb: &KBDLLHOOKSTRUCT) -> bool {
+    let injected = kb.flags.0 & 0x10 != 0; // LLKHF_INJECTED
+    let ours = kb.dwExtraInfo == MAGIC || matches!(kb.vkCode, 0x8 | 0xE7);
+    if injected && ours && !INJECT_TEST.load(Ordering::Relaxed) {
+        crate::dlog::dlog(&format!("ignoré injected vk={:#x}", kb.vkCode));
+        return true;
+    }
+    false
 }
 
 /// État du glisser souris (thread du hook, entre down et up).
@@ -309,10 +608,33 @@ fn drag_detected(down: (i32, i32), up: (i32, i32), prev_up: Option<((i32, i32), 
     ex * ex + ey * ey <= DOUBLE_PX * DOUBLE_PX
 }
 
+/// Le point tombe-t-il sur une fenêtre de CE process (la bulle) ?
+fn over_own_window(pt: windows::Win32::Foundation::POINT) -> bool {
+    unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(WindowFromPoint(pt), Some(&mut pid));
+        pid == GetCurrentProcessId()
+    }
+}
+
 /// Hook souris (WH_MOUSE_LL) : détection de sélection, jamais de swallow.
 /// Rapide : mutex + spawn seulement — presse-papiers et réseau vivent dans
 /// `def::worker`.
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // même garde anti-panic que le clavier : une serrure empoisonnée ne doit
+    // pas tuer le process ni geler la boucle de messages
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        mouse_impl(code, wparam, lparam)
+    })) {
+        Ok(r) => r,
+        Err(_) => {
+            crate::dlog::dlog("PANIC dans le hook souris — événement laissé passer");
+            unsafe { CallNextHookEx(None, code, wparam, lparam) }
+        }
+    }
+}
+
+unsafe fn mouse_impl(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         if code >= 0 {
             let ms = &*(lparam.0 as *const MSLLHOOKSTRUCT);
@@ -321,12 +643,22 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                 WM_LBUTTONDOWN => {
                     // le clic ferme la bulle de définition et invalide une
                     // recherche en vol (un changement d'app passe par un clic)
-                    MOUSE.lock().unwrap().down = Some(pt);
+                    MOUSE.lock().unwrap_or_else(|e| e.into_inner()).down = Some(pt);
                     crate::def::bump();
                     notify(KeyMsg::Click);
+                    // clic hors bulle alors qu'une suggestion est ouverte : on la
+                    // ferme (sinon elle reste zombie au-dessus de l'app cible) —
+                    // le clic n'est jamais avalé, le changement d'app suit son cours
+                    if POPUP_OPEN.load(Ordering::Relaxed)
+                        && popup_drawn()
+                        && !over_own_window(ms.pt)
+                    {
+                        crate::dlog::dlog("clic hors bulle — suggestion fermée");
+                        notify(KeyMsg::Invalidate);
+                    }
                 }
                 WM_LBUTTONUP => {
-                    let mut g = MOUSE.lock().unwrap();
+                    let mut g = MOUSE.lock().unwrap_or_else(|e| e.into_inner());
                     let down = g.down.take();
                     let prev = g.last_up.map(|(p, t)| (p, t.elapsed().as_millis() as u64));
                     g.last_up = Some((pt, std::time::Instant::now()));
@@ -352,56 +684,29 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
     }
 }
 
-/// (transmettre à plume, avaler la frappe) : avec le mode forcé (option tray),
-/// l'écriture est avalée ET non transmise tant que la bulle est ouverte —
-/// sinon `on_msg` la traiterait et refermerait la popup avant Entrée/Échap.
-/// Par défaut (forcé off) la frappe passe et ferme la bulle.
-fn flow(msg: KeyMsg, popup_open: bool) -> (bool, bool) {
-    let write = matches!(msg, KeyMsg::Char(_) | KeyMsg::Backspace);
-    let nav = matches!(
-        msg,
-        KeyMsg::Up | KeyMsg::Down | KeyMsg::Return | KeyMsg::Escape
-    );
-    if !popup_open {
-        return (true, false);
-    }
-    let force = FORCE.load(Ordering::Relaxed);
-    // navigation : toujours transmise à l'app (la bulle y réagit) et avalée
-    // (sinon la flèche bougerait aussi le curseur de l'application)
-    if nav {
-        return (true, true);
-    }
-    if write {
-        return if force { (false, true) } else { (true, false) };
-    }
-    // Invalidate/Other : transmis (ferme la bulle), non avalés
-    (true, false)
+/// Sous Shift, la touche appartient à l'application : seuls le texte et le
+/// Backspace restent à Plume (Maj+lettre = majuscule, Maj+Retour arrière =
+/// suppression). Tout le reste (Entrée, flèches, Échap…) passe intact.
+fn app_owns_shift(msg: KeyMsg) -> bool {
+    !matches!(msg, KeyMsg::Char(_) | KeyMsg::Backspace)
 }
 
-fn classify(kb: &KBDLLHOOKSTRUCT, wparam: WPARAM) -> Option<KeyMsg> {
-    unsafe {
-        if wparam.0 != WM_KEYDOWN as usize && wparam.0 != WM_SYSKEYDOWN as usize {
-            return None;
-        }
-        let vk = kb.vkCode;
+/// Bulle ouverte : seules ↑↓/Entrée/Échap sont avalées (la bulle les pilote).
+/// Toute écriture passe TOUJOURS — c'est elle qui ferme la bulle, et le
+/// caractère qui la ferme ne doit jamais être perdu (bug du « d » avalé).
+fn swallow(msg: KeyMsg, popup_open: bool) -> bool {
+    popup_open
+        && matches!(
+            msg,
+            KeyMsg::Up | KeyMsg::Down | KeyMsg::Return | KeyMsg::Escape
+        )
+}
 
-        let down = |v: i32| GetAsyncKeyState(v) & 0x8000u16 as i16 != 0;
-        // AltGr = RMenu + Ctrl synthétique : on le laisse passer comme une frappe normale
-        let altgr = down(VK_RMENU.0 as i32);
-        // Ctrl+Alt+P = raccourci de pause : jamais traité comme une frappe, jamais swalloué
-        // (WM_HOTKEY le gère dans la boucle de messages du thread hook)
-        if vk == u32::from(b'P') && down(VK_CONTROL.0 as i32) && (down(VK_LMENU.0 as i32) || altgr)
-        {
-            return None;
-        }
-        // Alt gauche = raccourci (Alt+D, Alt+Espace…) : jamais une frappe, invalide
-        // le buffer ; AltGr (RMenu) reste une frappe normale (é, è…)
-        if ((down(VK_CONTROL.0 as i32) || down(VK_LMENU.0 as i32)) && !altgr)
-            || down(VK_LWIN.0 as i32)
-            || down(VK_RWIN.0 as i32)
-        {
-            return Some(KeyMsg::Invalidate);
-        }
+/// Classe un enfoncement « normal ». Les raccourcis (Ctrl/Win/Alt) et les
+/// remappages Alt ont déjà été traités par `hook_impl`.
+fn classify(kb: &KBDLLHOOKSTRUCT) -> Option<KeyMsg> {
+    unsafe {
+        let vk = kb.vkCode;
 
         if vk == VK_UP.0 as u32 {
             return Some(KeyMsg::Up);
@@ -544,7 +849,7 @@ unsafe fn to_char(kb: &KBDLLHOOKSTRUCT) -> Option<char> {
             // la touche pour réarmer l'état avant qu'elle ne compose
             let mut junk = [0u16; 4];
             let _ = ToUnicodeEx(kb.vkCode, kb.scanCode, &state, &mut junk, 0, Some(hkl));
-            *DEAD.lock().unwrap() = Some((kb.vkCode, kb.scanCode));
+            *DEAD.lock().unwrap_or_else(|e| e.into_inner()) = Some((kb.vkCode, kb.scanCode));
             crate::dlog::dlog(&format!("dead key vk={:#x} réinitialisée", kb.vkCode));
             return None;
         }
@@ -555,7 +860,7 @@ unsafe fn to_char(kb: &KBDLLHOOKSTRUCT) -> Option<char> {
         // en place, sinon l'app recevrait la lettre non composée (« gre »).
         // shortcut: plume en pause entre la touche morte et la lettre → DEAD non
         // armé → un caractère possible non composé (cas rare, non géré)
-        if let Some((dvk, dscan)) = DEAD.lock().unwrap().take() {
+        if let Some((dvk, dscan)) = DEAD.lock().unwrap_or_else(|e| e.into_inner()).take() {
             let mut junk = [0u16; 4];
             let _ = ToUnicodeEx(dvk, dscan, &state, &mut junk, 0, Some(hkl));
             crate::dlog::dlog(&format!("réarmement dead key vk={dvk:#x}"));
@@ -590,25 +895,85 @@ mod tests {
     }
 
     #[test]
-    fn bulle_ouverte_flow_selon_mode_force() {
-        use super::{KeyMsg, flow, set_force};
-        // défaut (mode forcé off) : l'écriture passe et ferme la bulle
-        set_force(false);
-        assert_eq!(flow(KeyMsg::Char('a'), true), (true, false));
-        assert_eq!(flow(KeyMsg::Backspace, true), (true, false));
-        // mode forcé : écriture avalée ET non transmise (bulle tenue jusqu'à
-        // Entrée/Échap)
-        set_force(true);
-        assert_eq!(flow(KeyMsg::Char('a'), true), (false, true));
-        assert_eq!(flow(KeyMsg::Backspace, true), (false, true));
-        set_force(false); // remise à zéro pour les autres tests
-        // navigation : avalée mais transmise — la bulle doit y réagir
-        assert_eq!(flow(KeyMsg::Up, true), (true, true));
-        assert_eq!(flow(KeyMsg::Return, true), (true, true));
-        // bulle fermée : tout transmis, rien avalé
-        assert_eq!(flow(KeyMsg::Char('a'), false), (true, false));
-        // Ctrl+V pendant la bulle : transmis (ferme la bulle), non avalé
-        assert_eq!(flow(KeyMsg::Invalidate, true), (true, false));
+    fn seule_la_navigation_est_avalee() {
+        use super::{KeyMsg, swallow};
+        // popup ouverte : ↑↓/Entrée/Échap consommés — la bulle les pilote
+        assert!(swallow(KeyMsg::Up, true));
+        assert!(swallow(KeyMsg::Down, true));
+        assert!(swallow(KeyMsg::Return, true));
+        assert!(swallow(KeyMsg::Escape, true));
+        // l'écriture n'est JAMAIS avalée : elle ferme la bulle et le caractère
+        // qui la ferme doit arriver dans l'application (bug du « d » perdu)
+        assert!(!swallow(KeyMsg::Char('d'), true));
+        assert!(!swallow(KeyMsg::Backspace, true));
+        assert!(!swallow(KeyMsg::Invalidate, true));
+        // bulle fermée : rien n'est avalé
+        assert!(!swallow(KeyMsg::Up, false));
+    }
+
+    #[test]
+    fn shift_laisse_la_main_a_l_application() {
+        use super::{KeyMsg, app_owns_shift};
+        // Shift+Enter (saut de ligne Discord), Shift+flèches (sélection)…
+        assert!(app_owns_shift(KeyMsg::Return));
+        assert!(app_owns_shift(KeyMsg::Up));
+        assert!(app_owns_shift(KeyMsg::Down));
+        assert!(app_owns_shift(KeyMsg::Escape));
+        // …mais Maj+lettre et Maj+Retour arrière restent du texte pour Plume
+        assert!(!app_owns_shift(KeyMsg::Char('A')));
+        assert!(!app_owns_shift(KeyMsg::Backspace));
+    }
+
+    #[test]
+    fn alt_caracteres_speciaux() {
+        use super::special_char;
+        assert_eq!(special_char(0x04, false, false), Some('«'));
+        assert_eq!(special_char(0x04, true, false), Some('‹'));
+        assert_eq!(special_char(0x05, false, false), Some('»'));
+        assert_eq!(special_char(0x05, true, false), Some('›'));
+        assert_eq!(special_char(0x32, false, false), Some('‽'));
+        assert_eq!(special_char(0x07, false, false), Some('–'));
+        assert_eq!(special_char(0x07, true, false), Some('—'));
+        assert_eq!(special_char(0x34, false, false), Some('…'));
+        assert_eq!(special_char(0x0B, false, false), Some('À'));
+        // É exige Shift : Alt+2 seul reste un raccourci
+        assert_eq!(special_char(0x03, false, false), None);
+        assert_eq!(special_char(0x03, true, false), Some('É'));
+        assert_eq!(special_char(0x2E, false, false), Some('ç'));
+        assert_eq!(special_char(0x2E, true, false), Some('Ç'));
+        assert_eq!(special_char(0x18, false, false), Some('ô'));
+        assert_eq!(special_char(0x18, false, true), Some('Ô'));
+        assert_eq!(special_char(0x18, true, false), Some('œ'));
+        assert_eq!(special_char(0x18, true, true), Some('Œ'));
+        assert_eq!(special_char(0x16, false, false), Some('ù'));
+        assert_eq!(special_char(0x16, true, false), Some('Ù'));
+        assert_eq!(special_char(0x17, false, false), Some('ï'));
+        assert_eq!(special_char(0x17, true, false), Some('Ï'));
+        // touche non mappée : Alt+X passe à l'application
+        assert_eq!(special_char(0x1E, false, false), None);
+    }
+
+    #[test]
+    fn repli_vk_quand_le_scancode_est_inconnu() {
+        use super::key_scan;
+        // scancode connu : prioritaire, le vk n'est pas consulté
+        assert_eq!(key_scan(0x18, 0x4F), Some(0x18));
+        assert_eq!(key_scan(0x1E, 0x51), None);
+        // scancode absent/inattendu : repli sur le vkCode
+        assert_eq!(key_scan(0, 0x4F), Some(0x18)); // Alt+o
+        assert_eq!(key_scan(0, 0x33), Some(0x04)); // Alt+3
+        assert_eq!(key_scan(0, 0xBC), Some(0x32)); // Alt+,
+        assert_eq!(key_scan(0, 0x41), None); // Alt+a : non mappé
+    }
+
+    #[test]
+    fn f24_simple_puis_double() {
+        use super::f24_next;
+        use windows::Win32::UI::Input::KeyboardAndMouse::VK_F11;
+        // premier appui : rien tout de suite, on arme la fenêtre de 250 ms
+        assert_eq!(f24_next(false), (true, None));
+        // second appui dans la fenêtre : F11 immédiat
+        assert_eq!(f24_next(true), (false, Some(VK_F11)));
     }
 
     #[test]

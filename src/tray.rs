@@ -22,7 +22,6 @@ struct State {
     // doit rester vivante : la destruction de l'icône retire le tray
     _tray: TrayIcon,
     pause: CheckMenuItem,
-    force: CheckMenuItem,
     autostart: CheckMenuItem,
 }
 
@@ -38,7 +37,6 @@ pub fn init() {
     // ids explicites : sans eux muda génère des ids numériques ("1","2"…) et
     // les matchs de `poll` ne répondent jamais
     let pause = CheckMenuItem::with_id("pause", "Pause", true, hook::is_paused(), None);
-    let force = CheckMenuItem::with_id("force", "Mode forcé", true, hook::is_force(), None);
     let autostart = CheckMenuItem::with_id(
         "autostart",
         "Démarrage auto",
@@ -50,7 +48,6 @@ pub fn init() {
     let quit = MenuItem::with_id("quit", "Quitter", true, None);
     let menu = Menu::new();
     let _ = menu.append(&pause);
-    let _ = menu.append(&force);
     let _ = menu.append(&autostart);
     let _ = menu.append(&update);
     let _ = menu.append(&quit);
@@ -83,7 +80,6 @@ pub fn init() {
         *s.borrow_mut() = Some(State {
             _tray: tray,
             pause,
-            force,
             autostart,
         });
     });
@@ -110,10 +106,6 @@ pub fn poll() {
                     // muda a déjà basculé la coche avant d'émettre l'événement
                     hook::toggle_paused();
                     s.pause.set_checked(hook::is_paused());
-                }
-                "force" => {
-                    // muda a déjà basculé la coche avant d'émettre l'événement
-                    hook::set_force(s.force.is_checked());
                 }
                 "autostart" => {
                     // muda a déjà basculé la coche avant d'émettre l'événement

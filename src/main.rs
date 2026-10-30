@@ -21,10 +21,6 @@ fn main() -> eframe::Result {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || hook::run(tx));
 
-    // La bulle ne doit jamais voler le focus : sans ça, l'application cible perdrait
-    // son curseur dès l'apparition de la popup.
-    std::thread::spawn(no_activate::worker);
-
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_decorations(false)
@@ -44,31 +40,4 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |_cc| Ok(Box::new(app::App::new(rx, cfg)))),
     )
-}
-
-mod no_activate {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW,
-    };
-    use windows::core::w;
-
-    pub fn worker() {
-        // la fenêtre n'existe qu'après le démarrage d'eframe : on attend
-        for _ in 0..50 {
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            unsafe {
-                let Ok(hwnd) = FindWindowW(None, w!("plume")) else {
-                    continue;
-                };
-                let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                let _ = SetWindowLongPtrW(
-                    hwnd,
-                    GWL_EXSTYLE,
-                    ex | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize,
-                );
-                return;
-            }
-        }
-    }
 }

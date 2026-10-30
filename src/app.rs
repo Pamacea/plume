@@ -361,7 +361,8 @@ impl App {
                     wScan: 0,
                     dwFlags: flags,
                     time: 0,
-                    dwExtraInfo: 0,
+                    // marqué : le hook ignore ses propres injections
+                    dwExtraInfo: crate::hook::MAGIC,
                 },
             },
         };
@@ -373,7 +374,8 @@ impl App {
                     wScan: c,
                     dwFlags: flags | KEYEVENTF_UNICODE,
                     time: 0,
-                    dwExtraInfo: 0,
+                    // marqué : le hook ignore ses propres injections
+                    dwExtraInfo: crate::hook::MAGIC,
                 },
             },
         };
