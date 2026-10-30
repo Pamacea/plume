@@ -1,6 +1,8 @@
 //! État principal : reçoit les frappes du hook, gère la bulle et le remplacement.
 
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
@@ -14,6 +16,8 @@ use crate::spell;
 
 struct Popup {
     trigger: String,
+    /// catégorie affichée en tête de bulle
+    kind: &'static str,
     alts: Vec<String>,
     sel: usize,
     /// longueur du déclencheur tapé (caractères) pour le backspace
@@ -27,6 +31,20 @@ struct Popup {
     /// la sélection vient de changer (↑↓) : le ScrollArea doit la recentrer
     /// au rendu du frame courant, puis le flag est remis à false
     scroll_to_sel: bool,
+}
+
+/// taille fixe de la popup tray (contenu `tray::menu`)
+const MENU_W: f32 = 268.0;
+const MENU_H: f32 = 272.0;
+
+/// hauteur réelle mesurée du menu (centièmes de point) : la popup épouse son contenu
+static MENU_MEASURED: AtomicU32 = AtomicU32::new(0);
+
+fn menu_h() -> f32 {
+    match MENU_MEASURED.load(Ordering::Relaxed) {
+        0 => MENU_H,
+        v => v as f32 / 100.0,
+    }
 }
 
 pub struct App {
@@ -53,14 +71,29 @@ pub struct App {
     /// buffer vidé par Ctrl+C/V : plus de contexte de phrase → la popup
     /// suivante ne doit pas deviner une majuscule (« Désargenté » à tort)
     post_invalidate: bool,
+    /// eframe remontre la fenêtre après le premier rendu (anti flash blanc,
+    /// egui PR 2279) : ce drapeau la remasque une fois, sinon elle reste
+    /// visible hors écran (réservable par la barre des tâches / Alt+Tab)
     hidden_sent: bool,
     frames: u64,
     /// dernier état connu de `hook::is_paused` (détection de transition en `ui`)
     paused: bool,
+    /// réglages + état de la fenêtre Paramètres, partagés avec le viewport différé
+    /// (son callback doit être `Fn + Send + Sync + 'static` : pas d'emprunt de `self`)
+    settings: Arc<Mutex<(crate::settings::Settings, crate::settings::State)>>,
+    settings_open: Arc<AtomicBool>,
+    /// popup tray : ouverte ? focus déjà obtenu ? action choisie ? ancre logique ?
+    menu_open: Arc<AtomicBool>,
+    menu_armed: Arc<AtomicBool>,
+    menu_action: Arc<Mutex<Option<crate::tray::MenuAction>>>,
+    menu_pos: Option<egui::Pos2>,
 }
 
 impl App {
     pub fn new(rx: Receiver<KeyMsg>, cfg: Arc<Config>) -> App {
+        // publiés avant la première frappe : le hook lit les statiques
+        let settings = crate::settings::load();
+        crate::settings::init(&settings);
         App {
             rx,
             cfg,
@@ -80,6 +113,12 @@ impl App {
             // false = « pas encore en pause » : si la hotkey a basculé pendant le
             // chargement, le 1er pass détecte la transition et libère les dicos
             paused: false,
+            settings: Arc::new(Mutex::new((settings, crate::settings::State::default()))),
+            settings_open: Arc::new(AtomicBool::new(false)),
+            menu_open: Arc::new(AtomicBool::new(false)),
+            menu_armed: Arc::new(AtomicBool::new(false)),
+            menu_action: Arc::new(Mutex::new(None)),
+            menu_pos: None,
         }
     }
 
@@ -143,7 +182,14 @@ impl App {
                     // flag consommé ici (même sans popup) : le buffer reconstruit
                     // depuis fait foi pour les délimiteurs suivants
                     let fresh = std::mem::take(&mut self.post_invalidate);
-                    let p = if let Some(m) = self.cfg.match_buffer(&self.buffer) {
+                    // interrupteur des paramètres : seuls tics/adjectifs sont concernés
+                    // (orthographe, conjugaison et verbes restent actifs)
+                    let m = if crate::settings::tics() {
+                        self.cfg.match_buffer(&self.buffer)
+                    } else {
+                        None
+                    };
+                    let p = if let Some(m) = m {
                         crate::dlog::dlog(&format!(
                             "MATCH trigger={} len={}",
                             m.trigger, m.trigger_len
@@ -155,6 +201,7 @@ impl App {
                             .collect();
                         Some(Popup {
                             trigger: m.trigger,
+                            kind: "Tics & adjectifs",
                             alts: m.alts,
                             sel: 0,
                             trigger_len: m.trigger_len,
@@ -263,6 +310,7 @@ impl App {
             .collect();
         Some(Popup {
             trigger: mot,
+            kind: "Orthographe",
             alts,
             sel: 0,
             trigger_len,
@@ -286,6 +334,7 @@ impl App {
         let defs = vec![self.cfg.def(&alt).map(str::to_string)];
         Some(Popup {
             trigger: mot,
+            kind: "Conjugaison",
             alts: vec![alt],
             sel: 0,
             trigger_len,
@@ -317,6 +366,7 @@ impl App {
             .collect();
         Some(Popup {
             trigger: mot,
+            kind: "Verbes",
             alts,
             sel: 0,
             trigger_len,
@@ -613,8 +663,9 @@ fn work_area(pt: (i32, i32), scale: f32) -> (f32, f32, f32, f32) {
 /// Habillage commun des bulles (suggestion de correction et définition).
 fn bubble_frame() -> egui::Frame {
     egui::Frame::new()
-        .fill(egui::Color32::from_rgba_unmultiplied(24, 24, 32, 245))
-        .corner_radius(10.0)
+        .fill(crate::theme::BG)
+        .stroke(egui::Stroke::new(1.0, crate::theme::BORDER))
+        .corner_radius(6.0)
         .inner_margin(egui::Margin::same(10))
         .shadow(egui::epaint::Shadow {
             offset: [0, 4],
@@ -624,11 +675,116 @@ fn bubble_frame() -> egui::Frame {
         })
 }
 
+/// Ancre du clic tray (pixels physiques) → coin haut-gauche logique de la popup :
+/// au-dessus de l'icône (barre en bas), en dessous sinon, borné à la zone de travail.
+fn menu_pos(x: f32, y: f32, scale: f32) -> egui::Pos2 {
+    let h = menu_h();
+    let (wl, wt, wr, wb) = work_area((x as i32, y as i32), scale);
+    let (cx, top) = (x / scale, y / scale);
+    let mut p = egui::pos2(cx - MENU_W / 2.0, top - h);
+    if p.y < wt {
+        p.y = top + 32.0 / scale; // icône en haut de l'écran : la popup descend
+    }
+    p.x = p.x.clamp(wl + 4.0, (wr - MENU_W - 4.0).max(wl + 4.0));
+    p.y = p.y.clamp(wt + 4.0, (wb - h - 4.0).max(wt + 4.0));
+    p
+}
+
+/// Position écran de la fenêtre (points) + curseur (pixels physiques) au début
+/// du glissement de la fenêtre Paramètres.
+type DragOrigin = ((f32, f32), (i32, i32));
+static DRAG_ORIGIN: Mutex<Option<DragOrigin>> = Mutex::new(None);
+
+/// Barre de titre minimaliste : glisser pour déplacer, — réduire, × fermer.
+fn title_bar(ui: &mut egui::Ui, open: &AtomicBool) {
+    let ctx = ui.ctx().clone();
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 36.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 0.0, crate::theme::BG);
+    ui.painter().text(
+        rect.left_center() + egui::vec2(16.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        "Plume — Paramètres",
+        egui::FontId::proportional(12.0),
+        crate::theme::MUTED,
+    );
+    let close = egui::Rect::from_min_size(
+        egui::pos2(rect.right() - 36.0, rect.top() + 4.0),
+        egui::vec2(28.0, 28.0),
+    );
+    let min = close.translate(egui::vec2(-34.0, 0.0));
+    // glisser la fenêtre par la barre (les boutons sont enregistrés après → prioritaires).
+    // `ViewportCommand::StartDrag` d'egui-winit n'agit que si winit croit la fenêtre
+    // focalisée (`has_focus`) : sinon il ne fait rien. On suit donc le curseur nous-
+    // mêmes, avec GetCursorPos (coordonnées écran : insensibles au fait que la fenêtre
+    // se déplace sous le pointeur, contrairement aux deltas locaux d'egui).
+    let drag = ui.interact(
+        rect,
+        ui.id().with("plume-titlebar"),
+        egui::Sense::click_and_drag(),
+    );
+    if drag.drag_started() {
+        // origine réécrite à chaque début de drag : jamais de valeur périmée
+        let origin = ui
+            .ctx()
+            .input(|i| i.viewport().outer_rect)
+            .map(|r| ((r.min.x, r.min.y), cursor_pos()));
+        *DRAG_ORIGIN.lock().unwrap_or_else(|e| e.into_inner()) = origin;
+    }
+    if drag.dragged() {
+        let origin = *DRAG_ORIGIN.lock().unwrap_or_else(|e| e.into_inner());
+        let (nx, ny) = cursor_pos();
+        if let Some(((ox, oy), (cx, cy))) = origin {
+            // même échelle que celle qu'egui-winit applique à OuterPosition
+            let s = ui.ctx().pixels_per_point();
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                ox + (nx - cx) as f32 / s,
+                oy + (ny - cy) as f32 / s,
+            )));
+        }
+    }
+    if win_button(ui, min, "—") {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+    }
+    if win_button(ui, close, "×") {
+        open.store(false, Ordering::Relaxed);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+}
+
+/// Petit bouton de contrôle de fenêtre, dessiné (pas de cadre natif).
+fn win_button(ui: &mut egui::Ui, rect: egui::Rect, glyph: &str) -> bool {
+    let resp = ui.interact(rect, ui.id().with(glyph), egui::Sense::click());
+    let (fill, color) = if resp.hovered() {
+        (crate::theme::HOVER, crate::theme::TEXT)
+    } else {
+        (egui::Color32::TRANSPARENT, crate::theme::MUTED)
+    };
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(6), fill);
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        egui::FontId::proportional(13.0),
+        color,
+    );
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp.clicked()
+}
+
 impl eframe::App for App {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        // opaque et identique à la bulle : la transparence DWM rend un carré blanc
-        // sur Windows 11 → la fenêtre est exactement la bulle, sans pixel alpha 0
-        [24.0 / 255.0, 24.0 / 255.0, 32.0 / 255.0, 1.0]
+        // opaque et identique au fond de la charte : la transparence DWM rend un
+        // carré blanc sur Windows 11 → la fenêtre est exactement la bulle, sans pixel alpha 0
+        [
+            0x12 as f32 / 255.0,
+            0x12 as f32 / 255.0,
+            0x14 as f32 / 255.0,
+            1.0,
+        ]
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -654,10 +810,13 @@ impl eframe::App for App {
         if self.frames == 1 {
             // OnceLock : le hook réveille le rendu à chaque frappe utile envoyée
             hook::set_repaint_ctx(ctx.clone());
+            crate::theme::apply(&ctx);
         }
         if self.frames % 100 == 1 {
             crate::dlog::dlog(&format!("ui pass #{}", self.frames));
         }
+        // remasquée au premier `ui` (eframe l'a remontrée après le premier rendu) :
+        // la bulle reste hors écran tant qu'il n'y a rien à afficher
         if !self.hidden_sent {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.hidden_sent = true;
@@ -700,6 +859,17 @@ impl eframe::App for App {
             self.on_msg(msgs[i], &ctx, pending);
         }
 
+        // légende fidèle aux touches remappées (fenêtre Paramètres)
+        let hint = {
+            let g = self.settings.lock().unwrap_or_else(|e| e.into_inner());
+            format!(
+                "{} {} naviguer · {} valider · {} fermer",
+                crate::settings::key_label(&g.0.prev),
+                crate::settings::key_label(&g.0.next),
+                crate::settings::key_label(&g.0.validate),
+                crate::settings::key_label(&g.0.close),
+            )
+        };
         let mut clicked: Option<usize> = None;
         // lu avant les emprunts de rendu : consommé dans le même frame
         let follow = self.popup.as_ref().is_some_and(|p| p.scroll_to_sel);
@@ -718,6 +888,13 @@ impl eframe::App for App {
                     .wrap(),
                 );
                 ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(p.kind)
+                        .size(10.0)
+                        .color(crate::theme::MUTED)
+                        .strong(),
+                );
+                ui.add_space(2.0);
                 // hauteur plafonnée ≈ 7 lignes à 17px ; auto_shrink (défaut)
                 // suit le contenu en dessous → pas de boîte vide
                 egui::ScrollArea::vertical()
@@ -731,10 +908,12 @@ impl eframe::App for App {
                             } else {
                                 alt.clone()
                             };
-                            let resp = ui.selectable_label(
-                                sel,
-                                egui::RichText::new(format!("{}. {}", i + 1, alt)).size(17.0),
-                            );
+                            let mut text =
+                                egui::RichText::new(format!("{}. {}", i + 1, alt)).size(17.0);
+                            if sel {
+                                text = text.color(crate::theme::TEXT).strong();
+                            }
+                            let resp = ui.selectable_label(sel, text);
                             if follow && sel {
                                 resp.scroll_to_me(Some(egui::Align::Center));
                             }
@@ -754,7 +933,10 @@ impl eframe::App for App {
                                     };
                                     ui.add(
                                         egui::Label::new(
-                                            egui::RichText::new(short).size(11.0).italics().weak(),
+                                            egui::RichText::new(short)
+                                                .size(11.0)
+                                                .italics()
+                                                .color(crate::theme::MUTED),
                                         )
                                         .wrap(),
                                     );
@@ -764,8 +946,8 @@ impl eframe::App for App {
                     });
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new("↑↓ naviguer · Entrée valider · Échap fermer")
-                        .weak()
+                    egui::RichText::new(hint.as_str())
+                        .color(crate::theme::MUTED)
                         .size(11.0),
                 );
             });
@@ -785,12 +967,19 @@ impl eframe::App for App {
                 egui::ScrollArea::vertical()
                     .max_height(240.0)
                     .show(ui, |ui| {
-                        ui.add(egui::Label::new(egui::RichText::new(text).size(13.0)).wrap());
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(text)
+                                    .size(13.0)
+                                    .color(crate::theme::TEXT),
+                            )
+                            .wrap(),
+                        );
                     });
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new("taper ou cliquer pour fermer")
-                        .weak()
+                        .color(crate::theme::MUTED)
                         .size(11.0),
                 );
             });
@@ -840,6 +1029,150 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             p.sel = i;
             self.replace(p);
+        }
+
+        // popup du tray (clic gauche ou droit sur l'icône) : second clic = fermeture
+        if let Some((x, y)) = crate::tray::take_menu_request() {
+            let _ = hook::take_outside_click(); // le clic d'ouverture n'est pas « dehors »
+            if self.menu_open.swap(false, Ordering::Relaxed) {
+                self.menu_pos = None;
+            } else {
+                let scale = ctx.native_pixels_per_point().unwrap_or(1.0);
+                self.menu_pos = Some(menu_pos(x, y, scale));
+                self.menu_armed.store(false, Ordering::Relaxed);
+                self.menu_open.store(true, Ordering::Relaxed);
+            }
+        }
+        // clic hors popup : Windows ne lui donne pas forcément le focus, la perte
+        // de focus ne suffit donc pas à la refermer
+        if self.menu_open.load(Ordering::Relaxed) && hook::take_outside_click() {
+            self.menu_open.store(false, Ordering::Relaxed);
+        }
+        if let Some(pos) = self
+            .menu_pos
+            .filter(|_| self.menu_open.load(Ordering::Relaxed))
+        {
+            let open = Arc::clone(&self.menu_open);
+            let armed = Arc::clone(&self.menu_armed);
+            let action = Arc::clone(&self.menu_action);
+            let builder = egui::ViewportBuilder::default()
+                .with_title("plume")
+                .with_decorations(false)
+                .with_resizable(false)
+                .with_always_on_top()
+                .with_taskbar(false)
+                .with_close_button(false)
+                .with_inner_size(egui::vec2(MENU_W, menu_h()))
+                .with_position(pos);
+            // différé et non immédiat : la fenêtre principale est cachée, donc
+            // repeinte hors du contexte de boucle d'événements qu'exige un
+            // viewport immédiat (celui-ci échouait à créer sa fenêtre → panic egui)
+            ctx.show_viewport_deferred(
+                egui::ViewportId::from_hash_of("plume-menu"),
+                builder,
+                move |ui, _class| {
+                    let ctx = ui.ctx().clone();
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        open.store(false, Ordering::Relaxed);
+                        return;
+                    }
+                    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        open.store(false, Ordering::Relaxed);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        return;
+                    }
+                    let focused = ctx.input(|i| i.viewport().focused);
+                    if focused == Some(true) {
+                        armed.store(true, Ordering::Relaxed);
+                    } else if armed.load(Ordering::Relaxed) {
+                        open.store(false, Ordering::Relaxed);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        return;
+                    }
+                    let mut chosen = None;
+                    // la fenêtre fait office de conteneur unique : fond plein + marge interne
+                    ui.painter().rect_filled(
+                        ui.ctx().input(|i| i.viewport_rect()),
+                        0.0,
+                        crate::theme::CARD,
+                    );
+                    let frame = egui::Frame::new()
+                        .inner_margin(egui::Margin::same(12))
+                        .show(ui, |ui| chosen = crate::tray::menu(ui));
+                    // la fenêtre épouse son contenu : hauteur mesurée, bas ancré au
+                    // point d'ouverture (pos = coin haut-gauche calculé pour menu_h())
+                    let h = frame.response.rect.height();
+                    let used = menu_h();
+                    if (h - used).abs() > 1.0 {
+                        MENU_MEASURED.store((h * 100.0).round() as u32, Ordering::Relaxed);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                            MENU_W, h,
+                        )));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                            pos.x,
+                            pos.y + used - h,
+                        )));
+                    }
+                    if let Some(a) = chosen {
+                        *action.lock().unwrap_or_else(|e| e.into_inner()) = Some(a);
+                        open.store(false, Ordering::Relaxed);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                },
+            );
+        }
+        // popup fermée : applique l'action choisie, une seule fois
+        if !self.menu_open.load(Ordering::Relaxed) {
+            self.menu_pos = None;
+            if let Some(a) = self
+                .menu_action
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+            {
+                match a {
+                    crate::tray::MenuAction::Settings => {
+                        self.settings_open.store(true, Ordering::Relaxed)
+                    }
+                    crate::tray::MenuAction::Quit => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close)
+                    }
+                    crate::tray::MenuAction::Close => {}
+                }
+            }
+        }
+
+        // fenêtre Paramètres : viewport différé (mêmes raisons que la popup)
+        if self.settings_open.load(Ordering::Relaxed) {
+            let shared = Arc::clone(&self.settings);
+            let open = Arc::clone(&self.settings_open);
+            let builder = egui::ViewportBuilder::default()
+                .with_title("Plume — Paramètres")
+                .with_decorations(false)
+                .with_resizable(false)
+                .with_inner_size(egui::vec2(600.0, 540.0));
+            ctx.show_viewport_deferred(
+                egui::ViewportId::from_hash_of("plume-settings"),
+                builder,
+                move |ui, _class| {
+                    if ui.ctx().input(|i| i.viewport().close_requested()) {
+                        open.store(false, Ordering::Relaxed);
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        return;
+                    }
+                    ui.painter().rect_filled(
+                        ui.ctx().input(|i| i.viewport_rect()),
+                        0.0,
+                        crate::theme::BG,
+                    );
+                    title_bar(ui, &open);
+                    let mut g = shared.lock().unwrap_or_else(|e| e.into_inner());
+                    let (s, st) = &mut *g;
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::symmetric(16, 12))
+                        .show(ui, |ui| crate::settings::window(ui, s, st));
+                },
+            );
         }
 
         // le hook réveille le rendu lui-même à chaque message (set_repaint_ctx) :

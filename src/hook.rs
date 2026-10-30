@@ -1,15 +1,15 @@
 //! Hook clavier global (WH_KEYBOARD_LL) : reconstitue les caractères tapés
 //! via ToUnicodeEx et avale ↑↓/Entrée/Échap quand la bulle est ouverte.
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
 use eframe::egui;
 use windows::Win32::Foundation::{CloseHandle, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::{
-    GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-    QueryFullProcessImageNameW,
+    GetCurrentProcessId, GetCurrentThreadId, OpenProcess, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetKeyState, GetKeyboardLayout, INPUT, INPUT_0, INPUT_KEYBOARD,
@@ -21,9 +21,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
-    KBDLLHOOKSTRUCT, KillTimer, MSG, MSLLHOOKSTRUCT, SetTimer, SetWindowsHookExW, TranslateMessage,
-    UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_SYSKEYDOWN, WM_TIMER, WindowFromPoint,
+    KBDLLHOOKSTRUCT, KillTimer, MSG, MSLLHOOKSTRUCT, PostThreadMessageW, SetTimer,
+    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP,
+    WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_SYSKEYDOWN, WM_TIMER, WindowFromPoint,
 };
 use windows::core::PWSTR;
 
@@ -58,6 +58,10 @@ static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
 /// l'écran qu'à la frame suivante, un clic reçu avant ne doit pas la fermer
 static POPUP_SINCE: AtomicU64 = AtomicU64::new(0);
 static INJECT_TEST: AtomicBool = AtomicBool::new(false);
+/// clic gauche reçu hors de nos fenêtres : le menu tray s'en sert pour se fermer
+/// même quand Windows ne lui donne jamais le focus (clic sur l'icône = pas
+/// d'activation possible)
+static OUTSIDE_CLICK: AtomicBool = AtomicBool::new(false);
 /// pause globale : en true, hook_proc laisse passer toutes les frappes sans traiter
 static PAUSED: AtomicBool = AtomicBool::new(false);
 /// pédale F24 : un appui armé (true) attend un éventuel 2e appui pendant 250 ms.
@@ -77,8 +81,11 @@ static DEAD: Mutex<Option<(u32, u32)>> = Mutex::new(None);
 /// noms de fichiers (minuscules) des apps exclues, chargés une fois dans `run`
 static EXCLUDED: OnceLock<Vec<String>> = OnceLock::new();
 
-/// identifiant du hotkey Ctrl+Alt+P (RegisterHotKey / WM_HOTKEY)
+/// identifiant du hotkey Ctrl+Alt+touche de pause (RegisterHotKey / WM_HOTKEY)
 const HOTKEY_PAUSE: i32 = 1;
+/// id du thread du hook : seul lui peut (ré)enregistrer le hotkey (WM_HOTKEY y est posté)
+static HOTKEY_THREAD: AtomicU32 = AtomicU32::new(0);
+const WM_PAUSE_RELOAD: u32 = WM_APP + 1;
 
 pub fn set_popup_open(v: bool) {
     POPUP_OPEN.store(v, Ordering::Relaxed);
@@ -128,6 +135,11 @@ pub fn is_paused() -> bool {
     PAUSED.load(Ordering::Relaxed)
 }
 
+/// Un clic gauche hors de nos fenêtres a-t-il eu lieu depuis le dernier appel ?
+pub fn take_outside_click() -> bool {
+    OUTSIDE_CLICK.swap(false, Ordering::Relaxed)
+}
+
 /// Envoie un message depuis un worker (définition) et réveille le rendu.
 pub(crate) fn notify(msg: KeyMsg) {
     if let Some(tx) = TX.get()
@@ -151,6 +163,27 @@ pub fn toggle_paused() -> bool {
     v
 }
 
+/// (Ré)enregistre Ctrl+Alt+<touche de pause> sur le thread courant du hook.
+unsafe fn register_pause_hotkey() {
+    let vk = crate::settings::pause_vk();
+    if let Err(e) =
+        unsafe { RegisterHotKey(None, HOTKEY_PAUSE, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, vk) }
+    {
+        crate::dlog::dlog(&format!("hotkey pause ({vk:#x}) non enregistrée : {e}"));
+    }
+}
+
+/// Demande au thread du hook de réenregistrer le hotkey (appelé par les paramètres).
+pub fn reload_pause_hotkey() {
+    let tid = HOTKEY_THREAD.load(Ordering::Relaxed);
+    if tid != 0 {
+        // WM_HOTKEY n'arrive que dans la file du thread qui a enregistré
+        unsafe {
+            let _ = PostThreadMessageW(tid, WM_PAUSE_RELOAD, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
 pub fn run(tx: Sender<KeyMsg>) {
     TX.set(tx).ok();
     EXCLUDED.set(load_exclusions()).ok();
@@ -169,18 +202,17 @@ pub fn run(tx: Sender<KeyMsg>) {
         let hookm = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0)
             .expect("SetWindowsHookExW (souris) a échoué");
         crate::dlog::dlog("hook souris installé");
-        // Ctrl+Alt+P : hwnd = None → WM_HOTKEY est posté dans la file de CE thread,
-        // donc reçu par la boucle GetMessageW ci-dessous (pas de fenêtre dédiée).
-        if let Err(e) = RegisterHotKey(
-            None,
-            HOTKEY_PAUSE,
-            MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
-            u32::from(b'P'),
-        ) {
-            crate::dlog::dlog(&format!("hotkey Ctrl+Alt+P non enregistrée : {e}"));
-        }
+        // Ctrl+Alt+<touche> : hwnd = None → WM_HOTKEY est posté dans la file de CE
+        // thread, donc reçu par la boucle GetMessageW ci-dessous (pas de fenêtre)
+        HOTKEY_THREAD.store(GetCurrentThreadId(), Ordering::Relaxed);
+        register_pause_hotkey();
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+            if msg.message == WM_PAUSE_RELOAD {
+                let _ = UnregisterHotKey(None, HOTKEY_PAUSE);
+                register_pause_hotkey();
+                continue;
+            }
             if msg.message == WM_HOTKEY && msg.wParam.0 == HOTKEY_PAUSE as usize {
                 toggle_paused();
                 continue;
@@ -245,6 +277,11 @@ unsafe fn hook_impl(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
             crate::dlog::dlog("exclu (app dans exclusions.txt) — frappe ignorée");
             return CallNextHookEx(None, code, wparam, lparam);
         }
+        // nos propres fenêtres (paramètres, menu tray) ont le focus : l'utilisateur
+        // saisit dans Plume — corriger ce texte avec Plume serait un cercle vicieux
+        if foreground_is_ours() {
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
         // CHANTIER 1 : état physique des modificateurs AVANT tout traitement métier
         let m = mods();
 
@@ -256,14 +293,11 @@ unsafe fn hook_impl(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
 
         // CHANTIER 2 — Alt GAUCHE + touche mappée → caractère spécial
         if m.alt && !m.ctrl && !m.win {
-            // diagnostic : ce que Windows remonte réellement sous Alt
-            crate::dlog::dlog(&format!(
-                "alt vk={:#x} sc={:#x} shift={} caps={}",
-                kb.vkCode, kb.scanCode, m.shift, m.caps
-            ));
-            if let Some(c) =
+            // table de l'utilisateur (paramètres) prioritaire sur la table livrée
+            let user = crate::settings::alt_char(kb.vkCode);
+            if let Some(c) = user.or_else(|| {
                 key_scan(kb.scanCode, kb.vkCode).and_then(|k| special_char(k, m.shift, m.caps))
-            {
+            }) {
                 crate::dlog::dlog(&format!("alt -> {c:?}"));
                 inject_char_under_alt(c);
                 // l'injection est ignorée par le hook : le buffer suit ici
@@ -275,8 +309,8 @@ unsafe fn hook_impl(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         // CHANTIER 1 — Ctrl/Win : pass-through absolu. `Invalidate` ne bloque
         // rien, il remet juste le buffer à zéro (presse-papiers / changement d'app).
         if m.win || m.ctrl {
-            // Ctrl+Alt+P = hotkey de pause (traitée par WM_HOTKEY) : buffer intact
-            if !(kb.vkCode == u32::from(b'P') && m.alt) {
+            // Ctrl+Alt+touche de pause = hotkey (traitée par WM_HOTKEY) : buffer intact
+            if !(kb.vkCode == crate::settings::pause_vk() && m.alt) {
                 notify(KeyMsg::Invalidate);
             }
             return CallNextHookEx(None, code, wparam, lparam);
@@ -296,6 +330,9 @@ unsafe fn hook_impl(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         }
 
         if let Some(msg) = classify(kb) {
+            // raccourcis de navigation remappés (paramètres) : seules les touches
+            // de la liste fermée y répondent, une lettre n'est jamais détournée
+            let msg = crate::settings::remap(kb.vkCode).unwrap_or(msg);
             // Shift + touche de contrôle/navigation = raccourci de l'application
             // (Shift+Enter → saut de ligne Discord, Shift+flèches → sélection) :
             // la bulle se referme, la touche n'est jamais avalée
@@ -304,7 +341,6 @@ unsafe fn hook_impl(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
             } else {
                 msg
             };
-            crate::dlog::dlog(&format!("hook vk={:#x} -> {msg:?}", kb.vkCode));
             // changement d'app devant la bulle : suggestion périmée → on la ferme
             // et la frappe repasse comme bulle fermée
             let mut open = POPUP_OPEN.load(Ordering::Relaxed);
@@ -462,6 +498,23 @@ fn special_char(scan: u32, shift: bool, caps: bool) -> Option<char> {
     })
 }
 
+/// Miroir de `special_char` pour l'affichage dans les paramètres.
+/// (libellé de touche, scancode, exige Maj, caractère, variante avec Maj)
+/// L'autorité reste `special_char` : le test `native_alt_mirrors_special_char` les lie.
+pub const NATIVE_ALT: [(&str, u32, bool, char, Option<char>); 11] = [
+    ("2", 0x03, true, 'É', None),
+    ("3", 0x04, false, '«', Some('‹')),
+    ("4", 0x05, false, '»', Some('›')),
+    ("6", 0x07, false, '–', Some('—')),
+    ("0", 0x0B, false, 'À', None),
+    (",", 0x32, false, '‽', None),
+    (";", 0x34, false, '…', None),
+    ("C", 0x2E, false, 'ç', Some('Ç')),
+    ("O", 0x18, false, 'ô', Some('œ')),
+    ("U", 0x16, false, 'ù', Some('Ù')),
+    ("I", 0x17, false, 'ï', Some('Ï')),
+];
+
 /// Décision d'un appui F24 : (reste en attente, touche à envoyer tout de suite).
 /// false → premier appui, on arme la fenêtre de 250 ms (F12 si rien ne vient).
 /// true  → second appui dans la fenêtre : F11 immédiat.
@@ -617,6 +670,15 @@ fn over_own_window(pt: windows::Win32::Foundation::POINT) -> bool {
     }
 }
 
+/// La fenêtre au premier plan appartient-elle à Plume (menu tray, paramètres) ?
+fn foreground_is_ours() -> bool {
+    unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid));
+        pid == GetCurrentProcessId()
+    }
+}
+
 /// Hook souris (WH_MOUSE_LL) : détection de sélection, jamais de swallow.
 /// Rapide : mutex + spawn seulement — presse-papiers et réseau vivent dans
 /// `def::worker`.
@@ -649,10 +711,13 @@ unsafe fn mouse_impl(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                     // clic hors bulle alors qu'une suggestion est ouverte : on la
                     // ferme (sinon elle reste zombie au-dessus de l'app cible) —
                     // le clic n'est jamais avalé, le changement d'app suit son cours
-                    if POPUP_OPEN.load(Ordering::Relaxed)
-                        && popup_drawn()
-                        && !over_own_window(ms.pt)
-                    {
+                    let own = over_own_window(ms.pt);
+                    if !own {
+                        // le menu tray s'en sert : Windows ne lui donne pas le focus
+                        // quand on clique sur l'icône, donc aucun événement de blur
+                        OUTSIDE_CLICK.store(true, Ordering::Relaxed);
+                    }
+                    if POPUP_OPEN.load(Ordering::Relaxed) && popup_drawn() && !own {
                         crate::dlog::dlog("clic hors bulle — suggestion fermée");
                         notify(KeyMsg::Invalidate);
                     }
@@ -873,6 +938,24 @@ unsafe fn to_char(kb: &KBDLLHOOKSTRUCT) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn native_alt_mirrors_special_char() {
+        for &(key, scan, shift, base, variant) in &super::NATIVE_ALT {
+            assert_eq!(
+                super::special_char(scan, shift, false),
+                Some(base),
+                "Alt+{key}"
+            );
+            if let Some(v) = variant {
+                assert_eq!(
+                    super::special_char(scan, !shift, false),
+                    Some(v),
+                    "Maj+{key}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn drag_ou_double_clic_detectes() {
         // glissement > 6 px = sélection par drag

@@ -5,6 +5,7 @@
 //! fin de l'ancien process, recopie (configs locales conservées) et relance.
 
 use std::os::windows::process::CommandExt;
+use std::process::Stdio;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -58,6 +59,11 @@ pub fn launch() {
             .arg(&exe)
             .arg("-ProcId")
             .arg(std::process::id().to_string())
+            // CREATE_NO_WINDOW : aucun console host ; flux nuls = aucun héritage
+            // de handle qui pourrait faire clignoter une fenêtre
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
     });

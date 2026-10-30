@@ -7,3 +7,4 @@ plume.log
 nul
 # config locale de l'utilisateur (créée au premier lancement)
 exclusions.txt
+plume.json

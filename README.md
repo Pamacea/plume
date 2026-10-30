@@ -15,9 +15,8 @@ curseur, dans une bulle élégante :
 | `je la regarde ` | verbes **synonymes conjugués** : « je l'observe… » (1 100 verbes) |
 | `grace ` | suggestions accentuées : « grâce » |
 
-↑↓ pour naviguer, **Entrée** pour insérer, **Échap** pour ignorer. Par défaut,
-écrire ferme la bulle et continue la phrase ; cochez **Mode forcé** (menu tray)
-pour verrouiller la bulle jusqu'à validation ou annulation.
+↑↓ pour naviguer, **Entrée** pour insérer, **Échap** pour ignorer ; écrire ferme
+la bulle et continue la phrase. Ces touches se remappent dans les paramètres.
 
 ## Télécharger
 
@@ -36,6 +35,25 @@ laissé tranquille) et un raccourci `Plume` (menu Démarrer + Bureau).
 | `↑` `↓` | naviguer dans la bulle |
 | `Échap` | fermer sans insérer |
 | `Ctrl+Alt+P` | pause totale (reprise : même raccourci) |
+
+## Icône de la barre de notification
+
+Clic gauche **ou** droit sur l'icône de Plume ouvre son menu : pause / reprise
+(l'icône passe en gris avec un pictogramme pause), démarrage automatique,
+vérification des mises à jour, paramètres, quitter. Un clic hors du menu ou
+`Échap` le referme.
+
+## Paramètres
+
+`⚙ Paramètres…` ouvre une fenêtre à trois onglets :
+
+- **Général** — démarrage automatique, suggestions de tics et d'adjectifs, pause.
+- **Caractères spéciaux** — table `Alt + touche` → caractère (ex. `M` → `≥`),
+  sans éditer de fichier.
+- **Raccourcis de la bulle** — valider, fermer, suggestion suivante/précédente.
+
+Les réglages sont enregistrés dans `plume.json` (dossier courant, comme
+`tics.txt`) et s'appliquent immédiatement.
 
 ## Compiler
 
